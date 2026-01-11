@@ -16,7 +16,7 @@ def send_new_request_notification(request_obj):
     admin_emails = [a.email for a in admins if a.email]
     
     # Get providers in same category
-    providers = Provider.objects.filter(category=request_obj.category)
+    providers = Provider.objects.filter(categories=request_obj.category)
     provider_emails = [p.user.email for p in providers if p.user.email]
     
     # Create message

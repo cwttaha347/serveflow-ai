@@ -37,25 +37,36 @@ def calculate_match_score(request_obj, provider):
     """
     score = 0
     
+    # Normalize request_obj (can be a Request model instance or a dictionary)
+    if isinstance(request_obj, dict):
+        req_category_id = request_obj.get('category_id') or request_obj.get('category')
+        req_lat = request_obj.get('latitude')
+        req_lon = request_obj.get('longitude')
+    else:
+        req_category_id = request_obj.category.id if request_obj.category else None
+        req_lat = request_obj.latitude
+        req_lon = request_obj.longitude
+
     # 1. CATEGORY MATCH - MOST CRITICAL
-    # If categories don't match, return 0 immediately
-    if not provider.category or not request_obj.category:
+    if not req_category_id:
         return 0
     
-    if provider.category.id != request_obj.category.id:
-        # Wrong category = NO MATCH AT ALL
+    # Providers have 'categories' (ManyToManyField)
+    if not provider.categories.filter(id=req_category_id).exists():
         return 0
     
     # Category matches, continue scoring...
     
     # 2. LOCATION PROXIMITY (0-40 points)
-    if request_obj.latitude and request_obj.longitude and provider.latitude and provider.longitude:
-        distance = calculate_distance(
-            request_obj.latitude,
-            request_obj.longitude,
-            provider.latitude,
-            provider.longitude
-        )
+    # Coordinates are in the User's Profile
+    prov_lat = None
+    prov_lon = None
+    if hasattr(provider.user, 'profile'):
+        prov_lat = provider.user.profile.latitude
+        prov_lon = provider.user.profile.longitude
+
+    if req_lat and req_lon and prov_lat and prov_lon:
+        distance = calculate_distance(req_lat, req_lon, prov_lat, prov_lon)
         
         if distance is not None:
             if distance <= 2:

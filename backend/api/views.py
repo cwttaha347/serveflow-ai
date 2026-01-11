@@ -365,7 +365,7 @@ class RequestViewSet(viewsets.ModelViewSet):
         
         # Get ONLY providers in the SAME category
         providers = Provider.objects.filter(
-            category=service_request.category
+            categories=service_request.category
         )
         
         if not providers.exists():
@@ -383,15 +383,21 @@ class RequestViewSet(viewsets.ModelViewSet):
         for provider in providers:
             match_score = calculate_match_score(service_request, provider)
             
-            # Calculate distance if coordinates available
+            # Calculate distance if coordinates available (from User Profile)
+            prov_lat = None
+            prov_lon = None
+            if hasattr(provider.user, 'profile'):
+                prov_lat = provider.user.profile.latitude
+                prov_lon = provider.user.profile.longitude
+
             distance = None
             if (service_request.latitude and service_request.longitude and 
-                provider.latitude and provider.longitude):
+                prov_lat and prov_lon):
                 distance = calculate_distance(
                     service_request.latitude,
                     service_request.longitude,
-                    provider.latitude,
-                    provider.longitude
+                    prov_lat,
+                    prov_lon
                 )
             
             scored_providers.append({
@@ -401,7 +407,7 @@ class RequestViewSet(viewsets.ModelViewSet):
                 'match_score': match_score,
                 'distance_km': distance,
                 'availability': getattr(provider, 'availability_status', 'unknown'),
-                'category': provider.category.name
+                'category': service_request.category.name # Use the request's category name as primary
             })
         
         # Sort by match score (highest first)
