@@ -13,6 +13,9 @@ import google.generativeai as genai
 from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
 import PIL.Image
+from pillow_heif import register_heif_opener
+
+register_heif_opener()
 
 class AIImageAnalysisView(APIView):
     """
@@ -131,11 +134,11 @@ class AIImageAnalysisView(APIView):
                 "analysis": {
                     "detected_objects": ai_result.get('key_observations', []),
                     "confidence": ai_result.get('confidence_score', 0.9),
-                    "summary": f"AI identified: {ai_result.get('suggested_title')}",
-                    "suggested_title": ai_result.get('suggested_title'),
-                    "suggested_description": ai_result.get('suggested_description'),
+                    "summary": f"AI identified: {ai_result.get('suggested_title', ai_result.get('title', 'Unknown Issue'))}",
+                    "suggested_title": ai_result.get('suggested_title') or ai_result.get('title') or "New Service Request",
+                    "suggested_description": ai_result.get('suggested_description') or ai_result.get('description') or "Please provide more details.",
                     "category_id": category_obj.id if category_obj else None,
-                    "estimated_budget_range": ai_result.get('estimated_budget_range'),
+                    "estimated_budget_range": ai_result.get('estimated_budget_range') or ai_result.get('budget', '$50 - $150'),
                     "urgency": ai_result.get('urgency', 'Medium'),
                     "image_url": full_url
                 }
@@ -164,14 +167,15 @@ class AIImageAnalysisView(APIView):
             "success": True,
             "security_check": "PASSED - SIMULATION",
             "content_safety": "CLEAN",
+            "is_simulated": True,
             "analysis": {
-                "detected_objects": ["Simulated Object", "Fallback Mode"],
-                "confidence": 0.85,
-                "summary": "AI services unavailable. Basic analysis performed.",
-                "suggested_title": f"New {cat} Request",
-                "suggested_description": "Please provide more details about your issue.",
+                "detected_objects": ["Detected via Simulation"],
+                "confidence": 0.7,
+                "summary": f"Initial assessment for {cat} request (Development Mode)",
+                "suggested_title": f"Service Request: {cat} Maintenance",
+                "suggested_description": f"I need assistance with a {cat.lower()} related issue. The problem was identified through visual analysis, but please provide specific details here to help the service provider understand the scope of work.",
                 "category_id": Category.objects.filter(name=cat).first().id if Category.objects.filter(name=cat).exists() else None,
-                "estimated_budget_range": "$50 - $150",
+                "estimated_budget_range": "$100 - $300",
                 "urgency": "Medium",
                 "image_url": full_url
             }

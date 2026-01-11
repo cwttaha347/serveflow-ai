@@ -69,14 +69,19 @@ const CreateRequest = () => {
                 setScanning(false);
                 const analysis = res.data.analysis;
 
-                // Auto-populate based on analysis
+                if (!analysis) {
+                    showError("Visual analysis returned no data.");
+                    return;
+                }
+
+                // Auto-populate based on analysis (with safety checks)
                 setFormData(prev => ({
                     ...prev,
-                    title: analysis.suggested_title,
-                    description: analysis.suggested_description,
-                    category: analysis.category_id,
-                    budget: analysis.estimated_budget_range.replace(/[^0-9]/g, '').slice(0, 3) || '', // simplified
-                    images: [analysis.image_url]
+                    title: analysis.suggested_title || prev.title,
+                    description: analysis.suggested_description || prev.description,
+                    category: analysis.category_id || prev.category,
+                    budget: (analysis.estimated_budget_range || '').replace(/[^0-9]/g, '').slice(0, 3) || prev.budget,
+                    images: analysis.image_url ? [analysis.image_url] : prev.images
                 }));
 
                 setDiagnosis({ summary: analysis.summary });
@@ -354,6 +359,18 @@ const CreateRequest = () => {
                                         value={formData.title}
                                         onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                                         className="w-full px-6 py-4 bg-slate-900/50 border border-slate-700 rounded-xl text-white focus:border-blue-500 outline-none font-bold text-lg"
+                                        placeholder="Brief title of the issue"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-bold text-slate-400 uppercase tracking-widest mb-3">AI-Generated Description</label>
+                                    <textarea
+                                        value={formData.description}
+                                        onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                                        rows={4}
+                                        className="w-full px-6 py-4 bg-slate-900/50 border border-slate-700 rounded-xl text-white focus:border-blue-500 outline-none"
+                                        placeholder="Detailed description of the problem..."
                                     />
                                 </div>
 
