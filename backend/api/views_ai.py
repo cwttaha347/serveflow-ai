@@ -12,10 +12,11 @@ import json
 import google.generativeai as genai
 from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
-import PIL.Image
-from pillow_heif import register_heif_opener
-
-register_heif_opener()
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+except ImportError:
+    print("Warning: pillow-heif not installed. HEIC support will be limited.")
 
 class AIImageAnalysisView(APIView):
     """

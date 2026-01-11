@@ -1,228 +1,173 @@
 # Technical Documentation: ServeFlow AI
 
 ## 1. System Architecture
-High-level overview of the ServeFlow microservices architecture.
+ServeFlow AI utilizes a distributed microservices architecture designed for high throughput and fault tolerance.
 
 ```mermaid
 graph TD
-    UserClient[User Client (React)]
-    ProviderClient[Provider Client (React)]
-    AdminClient[Admin Client (React)]
-    
-    LB[Load Balancer / Nginx]
-    
-    subgraph "Backend Cluster"
-        Django[Django Core API]
-        FastAPI_AI[FastAPI AI Service]
-        FastAPI_Match[FastAPI Matching Service]
-        Redis[Redis Cache & Queue]
+    subgraph "Client Layer (React v18)"
+        UserClient[User Client]
+        ProviderClient[Provider Client]
+        AdminClient[Admin Portal]
     end
     
-    subgraph "Data Layer"
-        PostgreSQL[(PostgreSQL Database)]
-        GoogleGemini[Google Gemini API]
+    subgraph "API Gateway Layer"
+        Nginx[Nginx Load Balancer]
+    end
+    
+    subgraph "Core Service Layer (Django)"
+        Django[Django Core / DRF]
+        WS[Daphne ASGI / WebSockets]
+        ASync[Dramatiq/Celery Tasks]
+    end
+    
+    subgraph "Intelligence Tier (FastAPI)"
+        FAI[FastAPI AI Analysis]
+        FME[FastAPI Matching Engine]
+    end
+    
+    subgraph "Persistence & Cache"
+        Postgres[(PostgreSQL + PostGIS)]
+        Redis[(Redis Cache / Broker)]
+    end
+    
+    subgraph "External Providers"
+        Gemini[Google Gemini 1.5]
+        S3[Media Storage]
     end
 
-    UserClient --> LB
-    ProviderClient --> LB
-    AdminClient --> LB
+    UserClient --> Nginx
+    ProviderClient --> Nginx
+    AdminClient --> Nginx
     
-    LB --> Django
+    Nginx --> Django
+    Nginx --> WS
     
-    Django --> PostgreSQL
+    Django --> Postgres
     Django --> Redis
-    Django -- "Async Task" --> FastAPI_AI
-    Django -- "Async Task" --> FastAPI_Match
+    Django --> FAI
+    Django --> FME
     
-    FastAPI_AI --> GoogleGemini
-    FastAPI_Match --> Django
-    FastAPI_Match --> Redis
+    WS --> Redis
+    
+    FAI --> Gemini
+    FME --> Postgres
 ```
 
-## 2. Entity Relationship Diagram (ERD)
-Detailed schema of the relational database.
+---
+
+## 2. Sequence Diagram: Service Request Protocol
+This diagram illustrates the lifecycle of a request from initial visual scan to provider notification.
+
+```mermaid
+sequenceDiagram
+    participant U as User (React)
+    participant D as Django API
+    participant AI as FastAPI (AI)
+    participant G as Google Gemini
+    participant M as FastAPI (Match)
+    participant P as Provider (WebSocket)
+
+    U->>D: POST /api/requests/ai-analyze/ (Image)
+    D->>AI: analyze_image(image_bytes)
+    AI->>G: Vision Query (Prompt + Image)
+    G-->>AI: JSON Result (Title, Desc, Cat)
+    AI-->>D: Structured Analysis
+    D-->>U: AI Assessment Results
+    
+    U->>D: POST /api/requests/ (Confirm)
+    D->>D: Save to Postgres
+    D->>M: POST /match/providers (Location, Cat)
+    M->>D: Query Available Providers
+    M->>M: Calculate Match Scores
+    M-->>D: Ranked Provider List
+    
+    D->>WS: Broadcast New Request
+    WS-->>P: Socket Notification: "New Job Nearby"
+```
+
+---
+
+## 3. Data Model (Detailed ERD)
+The schema is optimized for geospatial proximity and historical performance tracking.
 
 ```mermaid
 erDiagram
-    User ||--o{ Profile : has
-    User ||--o{ Provider : "is a"
-    User ||--o{ Request : "creates"
-    User ||--o{ Message : "sends/receives"
+    USER ||--o| PROFILE : "1:1 Extension"
+    USER ||--o| PROVIDER : "Optional 1:1"
+    USER ||--o{ REQUEST : "Creates"
     
-    Provider ||--o{ Job : "performs"
-    Provider ||--o{ Bid : "makes"
-    Provider ||--|| User : "extends"
-    Provider }|--|{ Category : "specializes in"
+    PROVIDER }|--|{ CATEGORY : "Many-to-Many"
+    PROVIDER ||--o{ BID : "Submits"
+    PROVIDER ||--o{ JOB : "Assigned to"
     
-    Request ||--o{ Job : "becomes"
-    Request ||--o{ Bid : "receives"
-    Request }|--|| Category : "belongs to"
+    REQUEST }|--|| CATEGORY : "Classification"
+    REQUEST ||--o{ BID : "Receives"
+    REQUEST ||--o| JOB : "Becomes"
     
-    Job ||--o{ Review : "has"
-    Job ||--o{ Invoice : "generates"
-    Job ||--o{ Dispute : "may have"
-    Job ||--o{ Message : "contains"
-    
-    Category {
-        string name
-        string pricing_model
-        float base_price
+    JOB ||--o| INVOICE : "Generates"
+    JOB ||--o| REVIEW : "1:1 Feedback"
+    JOB ||--o{ MESSAGE : "History"
+
+    CATEGORY {
+        string name "Unique ID"
+        string pricing_model "fixed | hourly | quote"
+        decimal base_price "Starting at"
+        boolean is_active "Soft delete flag"
     }
     
-    User {
-        string username
-        string email
-        string role
-        boolean is_verified
-    }
-    
-    Provider {
-        float rating
-        boolean verified
-        string availability_status
-        float earnings
-    }
-    
-    Request {
-        string title
-        text description
-        json ai_summary
-        string status
-        float budget
-    }
-    
-    Job {
-        string status
-        datetime start_time
-        datetime end_time
-        float commission_rate
+    PROVIDER {
+        decimal rating "Aggregated mean"
+        int completed_jobs "Global count"
+        string availability "available | busy | offline"
+        decimal latitude "Current location"
+        decimal longitude "Current location"
     }
 
-    Invoice {
-        float total
-        boolean paid
-        string payment_method
+    REQUEST {
+        string status "pending | open | assigned | done"
+        json ai_summary "Cached Gemini output"
+        decimal latitude "Service location"
+        decimal longitude "Service location"
+        datetime preferred_date "Target schedule"
     }
 ```
 
-## 3. Data Flow Diagrams (DFD)
+---
 
-### Level 0 DFD (Context Diagram)
+## 4. Logical Data Flow (Level 2)
+
+### 4.1 AI Analysis Module (Process 2.0)
 ```mermaid
 graph LR
-    User((User))
-    Provider((Provider))
-    Admin((Admin))
-    System[ServeFlow System]
-    
-    User -- "Service Request" --> System
-    User -- "Payment" --> System
-    
-    System -- "Service Confirmation" --> User
-    System -- "Provider Details" --> User
-    
-    Provider -- "Availability" --> System
-    Provider -- "Bid/Acceptance" --> System
-    
-    System -- "Job Notification" --> Provider
-    System -- "Payout" --> Provider
-    
-    Admin -- "Policy/Config" --> System
-    System -- "Reports/Logs" --> Admin
+    I[Raw Image/Text] --> P21[Sanitization & Scaling]
+    P21 --> P22[Multi-Key Load Balancer]
+    P22 --> P23[Gemini Inference]
+    P23 --> P24[JSON Normalization]
+    P24 --> P25[Category Map Matching]
+    P25 --> O[Structural Assessment]
 ```
 
-### Level 1 DFD (Request Processing)
+### 4.2 Matching Engine Module (Process 3.0)
 ```mermaid
 graph TD
-    User((User))
-    P1[Request Processing]
-    P2[AI Analysis]
-    P3[Matching Engine]
-    P4[Job Management]
-    DB[(Database)]
+    R[Request Context] --> P31[Geospatial Filter]
+    P31 -- "Radial Query" --> P32[Category Hard-Filter]
+    P32 --> P33[Scoring Pipeline]
     
-    User -- "Submit Request" --> P1
-    P1 -- "Raw Data" --> P2
-    P2 -- "Structured Data (Gemini)" --> P1
-    P1 -- "Save Request" --> DB
+    subgraph "Scoring Pipeline"
+        S1[Distance Score]
+        S2[Rating Weight]
+        S3[Exp. Bonus]
+    end
     
-    P1 -- "Request Details" --> P3
-    DB -- "Provider Data" --> P3
-    P3 -- "Ranked Matches" --> P4
-    
-    P4 -- "Notify Provider" --> Provider((Provider))
+    S1 & S2 & S3 --> P34[Sort & Cap]
+    P34 --> O[Ranked Provider List]
 ```
 
-## 4. User Flow Charts
+---
 
-### User Request Flow
-```mermaid
-flowchart TD
-    Start([User Logs In]) --> Dashboard
-    Dashboard --> CreateReq[Click 'New Request']
-    CreateReq --> InputDetails[Enter Title, Desc, Address]
-    InputDetails --> UploadImg[Upload Image (Optional)]
-    UploadImg --> Submit
-    
-    Submit --> AI{AI Analysis}
-    AI -- Processing --> Loading[Show Skeleton Loader]
-    AI -- Success --> Summary[Show AI Summary & Key Points]
-    
-    Summary --> Confirm{Confirm Request?}
-    Confirm -- No --> Edit[Edit Details]
-    Confirm -- Yes --> Post[Post to Marketplace]
-    
-    Post --> Wait[Waiting for Bids/Match]
-    Wait --> MatchFound[Provider Found]
-    MatchFound --> Accept[Accept Provider]
-    Accept --> Payment[Hold Payment]
-    Payment --> JobStart([Job Started])
-```
-
-### Provider Job Flow
-```mermaid
-flowchart TD
-    Start([Provider Logs In]) --> Dashboard
-    Dashboard --> Toggle[Toggle Availability On]
-    Toggle --> Listen[Listening for Jobs]
-    
-    Listen --> JobAlert{New Job Alert}
-    JobAlert -- Ignore --> Listen
-    JobAlert -- View --> Details[View Job Details & AI Summary]
-    
-    Details --> Action{Action}
-    Action -- Decline --> Listen
-    Action -- Bid --> SubmitBid[Submit Bid/Quote]
-    Action -- Accept --> AcceptJob[Accept Fixed Price]
-    
-    SubmitBid --> Wait[Wait for User Approval]
-    AcceptJob --> JobActive([Job Active])
-```
-
-## 5. Navigation Structure (Sitemap)
-Visual representation of the application's routing.
-
-```mermaid
-graph TD
-    Root[/] --> Landing[Landing Page]
-    Root --> Auth[Authentication]
-    
-    Auth --> Login
-    Auth --> Register
-    
-    Root --> Dashboard[User Dashboard]
-    Dashboard --> MyReq[My Requests]
-    Dashboard --> Settings
-    Dashboard --> Tracking[Live Tracking]
-    
-    Root --> ProvDash[Provider Dashboard]
-    ProvDash --> Jobs[Job Queue]
-    ProvDash --> Earnings
-    ProvDash --> Profile
-    
-    Root --> Admin[Admin Panel]
-    Admin --> Users
-    Admin --> Categories
-    Admin --> Analytics
-    Admin --> AuditLogs
-```
+## 5. Network & Infrastructure
+*   **Protocol Support**: HTTP/1.1 for REST, WSS for real-time tracking.
+*   **Media Storage**: Local storage (Dev) or S3-compatible (Prod) for user-uploaded site photos.
+*   **Inter-Service Auth**: Internal HMAC or Shared Secret for FastAPI <-> Django communication.

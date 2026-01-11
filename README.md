@@ -1,6 +1,6 @@
 # ServeFlow AI - AI-Powered Service Marketplace
 
-## 🚀 Overvie
+## 🚀 Overview
 **ServeFlow AI** is an intelligent service aggregator platform powered by Google Gemini AI that connects customers with verified service providers through smart matching, real-time notifications, and a comprehensive bidding system.
 
 ## ✨ Key Features
@@ -107,6 +107,13 @@
                          │  Django Channels  │
                          └───────────────────┘
 ```
+
+## 📚 Detailed Documentation
+Comprehensive documentation for developers and stakeholders:
+*   **[Project Report](file:///e:/ServeFlow-ai/docs/REPORT.md)**: Problem statement, research questions, and technology deep-dive.
+*   **[Technical Architecture](file:///e:/ServeFlow-ai/docs/TECHNICAL.md)**: System diagrams, sequence maps, and database ERD.
+*   **[API Reference](file:///e:/ServeFlow-ai/docs/API_DOCS.md)**: Exhaustive list of endpoints with request/response examples.
+*   **[Deployment & Infrastructure](file:///e:/ServeFlow-ai/docs/INFRASTRUCTURE.md)**: Environment variables, setup guides, and production hardening.
 
 ## 🚀 Setup Instructions
 
