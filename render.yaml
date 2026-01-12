@@ -25,7 +25,7 @@ services:
         value: "https://serveflow-frontend.onrender.com"
 
   # 2. Frontend Service (React - Static Site)
-  - type: static
+  - type: static_site
     name: serveflow-frontend
     env: node
     rootDir: frontend
