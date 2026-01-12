@@ -1,0 +1,66 @@
+services:
+  # 1. Backend Service (Django + Daphne)
+  - type: web
+    name: serveflow-backend
+    env: docker
+    dockerContext: backend
+    dockerfilePath: Dockerfile
+    plan: free
+    releaseCommand: python manage.py migrate
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: serveflow-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: serveflow-redis
+          property: connectionString
+      - key: DEBUG
+        value: "0"
+      - key: ALLOWED_HOSTS
+        value: "serveflow-backend.onrender.com"
+      - key: CORS_ALLOWED_ORIGINS
+        value: "https://serveflow-frontend.onrender.com"
+
+  # 2. Frontend Service (React - Static Site)
+  - type: static
+    name: serveflow-frontend
+    env: node
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    publishDir: dist
+    envVars:
+      - key: VITE_API_URL
+        value: https://serveflow-backend.onrender.com/api/
+
+  # 3. AI Service (FastAPI)
+  - type: web
+    name: serveflow-ai-service
+    env: docker
+    dockerContext: ai_service
+    dockerfilePath: Dockerfile
+    plan: free
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false # Set manually in Render Dashboard
+
+  # 4. Matching Service (FastAPI)
+  - type: web
+    name: serveflow-matching-service
+    env: docker
+    dockerContext: matching_service
+    dockerfilePath: Dockerfile
+    plan: free
+
+# 5. Managed PostgreSQL
+databases:
+  - name: serveflow-db
+    plan: free
+
+# 6. Managed Redis
+redis:
+  - name: serveflow-redis
+    plan: free
+    ipAllowList: [] # Only allow internal access
