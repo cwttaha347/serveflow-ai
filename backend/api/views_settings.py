@@ -20,7 +20,10 @@ class SystemSettingsViewSet(viewsets.GenericViewSet):
             'contact_email': settings.contact_email,
             'currency_symbol': settings.currency_symbol,
             'maintenance_mode': settings.maintenance_mode,
+            'stripe_public_key': settings.stripe_public_key,
+            'stripe_mode': settings.stripe_mode,
         })
+    
 
     @action(detail=False, methods=['get', 'post'])
     def config(self, request):

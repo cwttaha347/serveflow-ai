@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ServeFlow AI - Thesis Document</title>
+    <!-- Fonts -->
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=Lora:ital,wght@0,400;0,700;1,400&display=swap"
+        rel="stylesheet">
+    <!-- html2pdf -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <script>
+        /**
+         * Robust PDF Export function
+         */
+        window.downloadPDF = function () {
+            const element = document.getElementById('thesis-content');
+            if (!element) return;
+
+            if (typeof html2pdf === 'undefined') {
+                alert("The export library is loading. Please wait.");
+                return;
+            }
+
+            const opt = {
+                margin: [10, 10, 10, 10],
+                filename: 'ServeFlow_AI_Thesis.pdf',
+                image: { type: 'jpeg', quality: 0.98 },
+                html2canvas: { scale: 2, useCORS: true, allowTaint: true, logging: false },
+                jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+                pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+            };
+
+            const downloadBtn = document.querySelector('button.btn');
+            const originalText = downloadBtn.innerHTML;
+            downloadBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+            downloadBtn.disabled = true;
+
+            html2pdf().set(opt).from(element).save().then(() => {
+                downloadBtn.innerHTML = originalText;
+                downloadBtn.disabled = false;
+            }).catch(err => {
+                console.error("PDF Generation error:", err);
+                downloadBtn.innerHTML = originalText;
+                downloadBtn.disabled = false;
+
+                // Detailed alert for SecurityError (Tainted Canvas)
+                const msg = "PDF Export Error: Browser security blocks local file image processing.\n\n" +
+                    "SOLUTION: For a perfect PDF, please use your browser's 'Print' feature:\n" +
+                    "1. Press Ctrl + P\n" +
+                    "2. Select 'Save as PDF' (Destination)\n" +
+                    "3. Click Save/Print";
+                alert(msg);
+            });
+        };
+    </script>
+
+    <style>
+        :root {
+            --primary: #4f46e5;
+            --primary-dark: #4338ca;
+            --secondary: #64748b;
+            --bg-gradient: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+            --glass-bg: rgba(255, 255, 255, 0.75);
+            --glass-border: rgba(255, 255, 255, 0.4);
+            --text-main: #1e293b;
+            --text-muted: #475569;
+            --accent: #10b981;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            color: var(--text-main);
+            background: var(--bg-gradient);
+            background-attachment: fixed;
+            line-height: 1.7;
+            scroll-behavior: smooth;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 40px auto;
+            background: var(--glass-bg);
+            backdrop-filter: blur(15px);
+            -webkit-backdrop-filter: blur(15px);
+            border: 1px solid var(--glass-border);
+            border-radius: 24px;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.1);
+            padding: 60px 80px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        h1,
+        h2,
+        h3,
+        h4 {
+            font-family: 'Inter', sans-serif;
+            font-weight: 700;
+            color: #0f172a;
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            font-size: 2.8rem;
+            text-align: center;
+            line-height: 1.2;
+        }
+
+        h2 {
+            font-size: 1.8rem;
+            border-bottom: 3px solid var(--primary);
+            padding-bottom: 10px;
+            margin-top: 60px;
+            display: inline-block;
+        }
+
+        h3 {
+            font-size: 1.4rem;
+            margin-top: 40px;
+            color: var(--primary);
+        }
+
+        p,
+        li {
+            font-family: 'Lora', serif;
+            font-size: 1.15rem;
+            margin-bottom: 1.5rem;
+            text-align: justify;
+        }
+
+        .highlight {
+            color: var(--primary);
+            font-weight: 600;
+        }
+
+        .front-page {
+            text-align: center;
+            min-height: 85vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            padding-bottom: 100px;
+        }
+
+        .university-info {
+            margin-top: 80px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            font-size: 1rem;
+            color: var(--text-main);
+        }
+
+        .diagram-container {
+            margin: 50px 0;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.5);
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.8);
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+
+        .diagram-container img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 12px;
+            margin: 0 auto;
+            display: block;
+        }
+
+        .diagram-caption {
+            display: block;
+            margin-top: 15px;
+            font-style: italic;
+            color: var(--text-muted);
+            font-size: 0.95rem;
+            font-weight: 500;
+        }
+
+        .controls {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            z-index: 1000;
+        }
+
+        .btn {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 14px 28px;
+            border-radius: 50px;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 10px 25px rgba(79, 70, 229, 0.3);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            text-decoration: none;
+            font-size: 0.95rem;
+        }
+
+        .btn:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 30px rgba(79, 70, 229, 0.4);
+            background: var(--primary-dark);
+        }
+
+        .page-break {
+            page-break-before: always;
+            margin: 80px 0 40px 0;
+            height: 1px;
+        }
+
+        .abstract-box {
+            background: rgba(241, 245, 249, 0.6);
+            padding: 40px;
+            border-left: 6px solid var(--primary);
+            border-radius: 12px;
+            margin: 40px 0;
+            font-style: italic;
+        }
+
+        /* Print optimization */
+        @media print {
+            @page {
+                margin: 1.5cm;
+            }
+
+            .controls {
+                display: none;
+            }
+
+            body {
+                background: white;
+                padding: 0;
+            }
+
+            .container {
+                box-shadow: none;
+                margin: 0;
+                padding: 0;
+                border: none;
+                max-width: 100%;
+                background: white;
+                backdrop-filter: none;
+            }
+
+            .page-break {
+                border: none;
+                margin: 0;
+                height: 0;
+                page-break-before: always;
+            }
+
+            h1,
+            h2,
+            h3 {
+                page-break-after: avoid;
+            }
+
+            p,
+            .diagram-container {
+                page-break-inside: avoid;
+            }
+
+            img {
+                max-width: 100% !important;
+                border-radius: 0;
+            }
+
+            .front-page {
+                min-height: 100vh;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="controls">
+        <button onclick="downloadPDF()" class="btn" title="Download via JS (May fail for local images)">
+            <i class="fas fa-file-pdf"></i> Download PDF (JS)
+        </button>
+        <button onclick="window.print()" class="btn"
+            style="background: var(--accent); box-shadow: 0 10px 25px rgba(16, 185, 129, 0.3);"
+            title="Recommended: Use for perfect local file export">
+            <i class="fas fa-print"></i> Ctrl + P (Recommended)
+        </button>
+        <a href="#toc" class="btn"
+            style="background: var(--secondary); box-shadow: 0 10px 25px rgba(100, 116, 139, 0.3);">
+            <i class="fas fa-list"></i> Contents
+        </a>
+    </div>
+
+    <div class="container" id="thesis-content">
+        <!-- FRONT PAGE -->
+        <section class="front-page">
+            <h1 style="color: var(--primary); margin-bottom: 20px;">SERVEFLOW AI</h1>
+            <h3 style="text-align: center; color: var(--text-main); font-weight: 400; font-size: 1.5rem;">
+                Next-Generation Intelligent Service Marketplace & Resource Management Ecosystem</h3>
+
+            <p style="text-align: center; margin-top: 80px; font-family: 'Inter', sans-serif;">
+                A Thesis Submitted in Partial Fulfillment of the Requirements for the Degree of<br>
+                <span style="font-weight: 700; font-size: 1.3rem;">Bachelor of Science in Computer Science</span>
+            </p>
+
+            <div style="margin-top: 80px;">
+                <p style="text-align: center;">By<br><span class="highlight" style="font-size: 1.4rem;">Student
+                        Researcher</span></p>
+                <p style="text-align: center; margin-top: 30px;">Supervised By<br><span class="highlight"
+                        style="font-size: 1.2rem;">Faisal Ahmed</span></p>
+            </div>
+
+            <div class="university-info">
+                Department of Computer Science<br>
+                Iqra University North Campus (IUNC)<br>
+                2026
+            </div>
+        </section>
+
+        <div class="page-break"></div>
+
+        <!-- UNDERTAKING -->
+        <section id="undertaking">
+            <h2 style="display: block; text-align: center;">Undertaking</h2>
+            <p style="margin-top: 40px;">
+                We hereby declare that the thesis entitled <strong>"ServeFlow AI: Next-Generation Intelligent Service
+                    Marketplace & Resource Management Ecosystem"</strong> is our own work and has been carried out under
+                the supervision of <strong>Faisal Ahmed</strong>. All sources used or quoted have been indicated and
+                acknowledged by means of complete references.
+            </p>
+            <div style="margin-top: 80px;">
+                <p>Signature: __________________________</p>
+                <p>Date: January 11, 2026</p>
+            </div>
+        </section>
+
+        <div class="page-break"></div>
+
+        <!-- ACKNOWLEDGEMENT -->
+        <section id="acknowledgement">
+            <h2>Acknowledgement</h2>
+            <p>
+                We would like to express our deepest gratitude to our supervisor, <strong>Faisal Ahmed</strong>, for
+                their invaluable guidance and patience throughout this project. We also thank our peers and family for
+                their continuous support and encouragement.
+            </p>
+            <h3>Dedication</h3>
+            <p>
+                This work is dedicated to our parents and to the pursuit of knowledge.
+            </p>
+        </section>
+
+        <div class="page-break"></div>
+
+        <!-- TABLE OF CONTENTS -->
+        <section id="toc">
+            <h2>Table of Contents</h2>
+            <ul style="list-style: none; padding-left: 0; margin-top: 30px;">
+                <li style="margin-bottom: 15px;"><a href="#undertaking"
+                        style="text-decoration: none; color: inherit; font-family: 'Inter'; font-weight: 600;">1.
+                        Undertaking</a></li>
+                <li style="margin-bottom: 15px;"><a href="#acknowledgement"
+                        style="text-decoration: none; color: inherit; font-family: 'Inter'; font-weight: 600;">2.
+                        Acknowledgement</a></li>
+                <li style="margin-bottom: 15px;"><a href="#abstract"
+                        style="text-decoration: none; color: inherit; font-family: 'Inter'; font-weight: 600;">3.
+                        Abstract</a></li>
+                <li style="margin-bottom: 15px;"><a href="#chapter1"
+                        style="text-decoration: none; color: inherit; font-family: 'Inter'; font-weight: 600;">4.
+                        Chapter 1: Introduction</a></li>
+                <li style="margin-bottom: 15px;"><a href="#chapter2"
+                        style="text-decoration: none; color: inherit; font-family: 'Inter'; font-weight: 600;">5.
+                        Chapter 2: State of the Art</a></li>
+                <li style="margin-bottom: 15px;"><a href="#chapter3"
+                        style="text-decoration: none; color: inherit; font-family: 'Inter'; font-weight: 600;">6.
+                        Chapter 3: Methodology</a></li>
+                <li style="margin-bottom: 15px;"><a href="#chapter4"
+                        style="text-decoration: none; color: inherit; font-family: 'Inter'; font-weight: 600;">7.
+                        Chapter 4: System Design</a></li>
+                <li style="margin-bottom: 15px;"><a href="#chapter5"
+                        style="text-decoration: none; color: inherit; font-family: 'Inter'; font-weight: 600;">8.
+                        Chapter 5: Implementation</a></li>
+                <li style="margin-bottom: 15px;"><a href="#chapter6"
+                        style="text-decoration: none; color: inherit; font-family: 'Inter'; font-weight: 600;">9.
+                        Chapter 6: Conclusion</a></li>
+                <li style="margin-bottom: 15px;"><a href="#references"
+                        style="text-decoration: none; color: inherit; font-family: 'Inter'; font-weight: 600;">10.
+                        References</a></li>
+            </ul>
+        </section>
+
+        <div class="page-break"></div>
+
+        <!-- ABSTRACT -->
+        <section id="abstract">
+            <h2>Abstract</h2>
+            <div class="abstract-box">
+                <p>
+                    The global on-demand service economy is plagued by significant throughput bottlenecks and trust
+                    deficits. Traditional platforms fail to distinguish between the specific contexts of similar service
+                    requests. <span class="highlight">ServeFlow AI</span> addresses this "Context Gap" by integrating
+                    <strong>Multimodal Generative AI</strong> (Vision + Text) with a <strong>Context-Aware Geospatial
+                        Matching Engine</strong>.
+                </p>
+                <p>
+                    By integrating Google Gemini 1.5 into a microservices architecture, the system reduces time-to-hire
+                    from hours to minutes. Analyzing visual data (site photos) and natural language descriptions,
+                    ServeFlow creates high-fidelity "Technical Directives," matching providers based on precise skill
+                    sets and real-time proximity.
+                </p>
+            </div>
+        </section>
+
+        <div class="page-break"></div>
+
+        <!-- CHAPTER 1 -->
+        <section id="chapter1">
+            <h1 style="text-align: left; color: var(--primary);">CHAPTER 1: INTRODUCTION</h1>
+
+            <div class="diagram-container" id="fig1.1">
+                <img src="../assets/thesis_diagrams/navigation_flow.png" alt="Navigation Flow Diagram">
+                <span class="diagram-caption">Figure 1.1: System Navigation and User Experience Flow</span>
+            </div>
+
+            <h3>1.1 Background</h3>
+            <p>The current service industry faces significant inefficiencies in connecting seekers with reliable
+                providers. Key problems include inefficient matching, lack of trust, and communication gaps.</p>
+
+            <h3>1.2 Problem Statement</h3>
+            <p>Users spend excessive time parsing irrelevant listings, and traditional keyword matching fails to
+                distinguish between different scopes of the same service (e.g., a "leaking pipe" vs. "house pipe
+                renovation").</p>
+
+            <h3>1.3 Hypothesis</h3>
+            <p>Integrating Multimodal Generative AI with a Context-Aware Geospatial Matching Engine will increase match
+                accuracy by <span class="highlight">75%</span> and reduce "Time to Hire" to under <span
+                    class="highlight">10 minutes</span>.</p>
+        </section>
+
+        <div class="page-break"></div>
+
+        <!-- CHAPTER 2 -->
+        <section id="chapter2">
+            <h1 style="text-align: left; color: var(--primary);">CHAPTER 2: STATE OF THE ART</h1>
+            <h3>2.1 Current Landscape</h3>
+            <p>Traditional platforms (Craigslist, Yelp) rely on static listings. Newer "gig economy" apps often lack
+                transparency or enforce rigid models without contextual understanding.</p>
+
+            <h3>2.2 Advancements in Generative AI</h3>
+            <ul style="margin-left: 25px; margin-bottom: 20px;">
+                <li><strong>Google Gemini Pro (LLM):</strong> Extracts structured data from text and allows for semantic
+                    search.</li>
+                <li><strong>Google Gemini Vision:</strong> Analyzes technical context from user-uploaded photos to
+                    identify complex faults.</li>
+            </ul>
+
+            <h3>2.3 Geospatial Innovations</h3>
+            <p>Modern haversine algorithms combined with real-time status updates allow for dynamic ranking that
+                considers travel time as a primary metric for success.</p>
+        </section>
+
+        <div class="page-break"></div>
+
+        <!-- CHAPTER 3 -->
+        <section id="chapter3">
+            <h1 style="text-align: left; color: var(--primary);">CHAPTER 3: METHODOLOGY</h1>
+
+            <div class="diagram-container" id="fig3.1">
+                <img src="../assets/thesis_diagrams/process_flowchart.png" alt="Process Flowchart">
+                <span class="diagram-caption">Figure 3.1: Development Methodology and Lifecycle Flowchart</span>
+            </div>
+
+            <h3>3.1 Technical Stack</h3>
+            <ul style="margin-left: 25px; margin-bottom: 20px;">
+                <li><span class="highlight">Frontend:</span> React.js, Tailwind CSS, Framer Motion for premium UI.</li>
+                <li><span class="highlight">Backend:</span> Django REST Framework, Django Channels for real-time
+                    WebSockets.</li>
+                <li><span class="highlight">AI Services:</span> FastAPI, Google Gemini API for multimodal analysis.</li>
+                <li><span class="highlight">Database:</span> PostgreSQL with PostGIS for high-accuracy spatial queries.
+                </li>
+            </ul>
+
+            <h3>3.2 Development Methodology</h3>
+            <p>We utilized a "Service-Oriented Architecture" (SOA) and Agile methodology to iteratively build and test
+                the matching engine and AI integration components.</p>
+        </section>
+
+        <div class="page-break"></div>
+
+        <!-- CHAPTER 4 -->
+        <section id="chapter4">
+            <h1 style="text-align: left; color: var(--primary);">CHAPTER 4: SYSTEM DESIGN</h1>
+
+            <div class="diagram-container" id="fig4.1">
+                <img src="../assets/thesis_diagrams/block_diagram.png" alt="Block Diagram">
+                <span class="diagram-caption">Figure 4.1: High-Level System Architecture (Block Diagram)</span>
+            </div>
+
+            <p>A distributed cluster where Nginx load balances traffic between the React frontend and the Django/FastAPI
+                backend tier, ensuring scalability and fault tolerance.</p>
+
+            <div class="diagram-container" id="fig4.2">
+                <img src="../assets/thesis_diagrams/dfd.png" alt="Data Flow Diagram">
+                <span class="diagram-caption">Figure 4.2: Level 2 Data Flow Diagram (DFD) showing interaction between
+                    modules</span>
+            </div>
+
+            <div class="diagram-container" id="fig4.3">
+                <img src="../assets/thesis_diagrams/erd.png" alt="Entity Relationship Diagram">
+                <span class="diagram-caption">Figure 4.3: Comprehensive Entity Relationship Diagram (ERD)</span>
+            </div>
+        </section>
+
+        <div class="page-break"></div>
+
+        <!-- CHAPTER 5 -->
+        <section id="chapter5">
+            <h1 style="text-align: left; color: var(--primary);">CHAPTER 5: IMPLEMENTATION</h1>
+
+            <h3>5.1 Visual Diagnostics</h3>
+            <p>Implementation of the <code>AIImageAnalysisView</code> which utilizes Gemini Vision to identify parts and
+                estimate problem urgency from site photos, generating technical directives.</p>
+
+            <div class="diagram-container" id="fig5.1">
+                <img src="../assets/docs_screenshots/ss1.PNG" alt="AI Analysis Screenshot">
+                <span class="diagram-caption">Figure 5.1: AI Vision Module detecting faults and suggesting repair
+                    titles</span>
+            </div>
+
+            <h3>5.2 Matching Engine Scoring</h3>
+            <p>The logic follows a weighted heuristic to ensure the most relevant provider is matched:</p>
+            <ul style="margin-left: 25px; margin-bottom: 20px;">
+                <li>Category Affinity (35%)</li>
+                <li>Proximity (25%)</li>
+                <li>Reputation (20%)</li>
+                <li>Availability (20%)</li>
+            </ul>
+
+            <div class="diagram-container" id="fig5.2">
+                <img src="../assets/docs_screenshots/ss2.PNG" alt="Matching Results">
+                <span class="diagram-caption">Figure 5.2: Geospatial Matching Engine ranked results view</span>
+            </div>
+
+            <h3>5.3 Real-time Pulse</h3>
+            <p>WebSocket implementation using Django Channels ensures providers receive instant alerts, and users can
+                track job status from 'Accepted' to 'Completed' live.</p>
+        </section>
+
+        <div class="page-break"></div>
+
+        <!-- CHAPTER 6 -->
+        <section id="chapter6">
+            <h1 style="text-align: left; color: var(--primary);">CHAPTER 6: CONCLUSION</h1>
+
+            <div class="diagram-container" id="fig6.1">
+                <img src="../assets/thesis_diagrams/gantt_chart.png" alt="Gantt Chart">
+                <span class="diagram-caption">Figure 6.1: Project Development Timeline (Gantt Chart)</span>
+            </div>
+
+            <h3>6.1 Societal Impact</h3>
+            <p>ServeFlow empowers small-scale providers by providing high-quality leads without marketing overhead,
+                leveling the playing field in the local service economy.</p>
+
+            <h3>6.2 Summary of Findings</h3>
+            <p>The integration of AI drastically reduces the "Context Gap," providing users with high-fidelity summaries
+                and providers with clear technical directives before arrival.</p>
+
+            <h3>6.3 Future Roadmap</h3>
+            <p>Future iterations will focus on Edge Processing for sub-second image analysis and full Stripe Connect
+                integration for automated global escrow payments.</p>
+        </section>
+
+        <div class="page-break"></div>
+
+        <!-- REFERENCES -->
+        <section id="references">
+            <h2 style="display: block; text-align: left;">References</h2>
+            <ul style="list-style: decimal; padding-left: 25px; margin-top: 30px;">
+                <li>Google (2024). <em>Gemini API Documentation Strategy</em>. [online] Available at: ai.google.dev</li>
+                <li>Django Project (2025). <em>Real-time WebSockets with Channels</em>. [online] Available at:
+                    djangoproject.com</li>
+                <li>Vite & React (2025). <em>High Performance Frontend Architecture</em>.</li>
+                <li>PostGIS (2024). <em>Spatial Database Systems for Marketplaces</em>.</li>
+            </ul>
+        </section>
+    </div>
+
+    <!-- Script to handle jump links -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+                anchor.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    const target = document.querySelector(this.getAttribute('href'));
+                    if (target) {
+                        window.scrollTo({ top: target.offsetTop - 20, behavior: 'smooth' });
+                    }
+                });
+            });
+        });
+    </script>
+</body>
+
+</html>

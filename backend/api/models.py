@@ -149,6 +149,8 @@ class Invoice(models.Model):
     paid = models.BooleanField(default=False)
     paid_at = models.DateTimeField(null=True, blank=True)
     payment_method = models.CharField(max_length=50, blank=True)
+    stripe_payment_intent_id = models.CharField(max_length=255, blank=True, null=True)
+    stripe_checkout_session_id = models.CharField(max_length=255, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     
     class Meta:
@@ -225,6 +227,12 @@ class SystemSettings(models.Model):
     gemini_api_key_2 = models.CharField(max_length=255, blank=True)
     gemini_api_key_3 = models.CharField(max_length=255, blank=True)
     gemini_api_key_4 = models.CharField(max_length=255, blank=True)
+    
+    # Stripe Configuration
+    stripe_public_key = models.CharField(max_length=255, blank=True)
+    stripe_secret_key = models.CharField(max_length=255, blank=True)
+    stripe_webhook_secret = models.CharField(max_length=255, blank=True)
+    stripe_mode = models.CharField(max_length=10, choices=[('test', 'Test'), ('live', 'Live')], default='test')
     
     updated_at = models.DateTimeField(auto_now=True)
 

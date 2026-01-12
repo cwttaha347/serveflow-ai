@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import api from '../api';
-import { Printer, Download, ArrowLeft, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Printer, Download, ArrowLeft, Loader2, CheckCircle2, AlertCircle, CreditCard } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 import { useSettings } from '../context/SettingsContext';
 
@@ -31,15 +31,20 @@ const InvoiceDetail = () => {
         }
     };
 
-    const handleMarkPaid = async () => {
+    const handleStripePayment = async () => {
         setPaying(true);
         try {
-            await api.post(`invoices/${id}/mark_paid/`, { payment_method: 'manual' });
-            success('Invoice marked as paid');
-            fetchInvoice();
+            const response = await api.post('payments/stripe-checkout/', {
+                invoice_id: id,
+                success_url: `${window.location.origin}/invoices/${id}?payment=success`,
+                cancel_url: `${window.location.origin}/invoices/${id}?payment=cancelled`
+            });
+            if (response.data.checkout_url) {
+                window.location.href = response.data.checkout_url;
+            }
         } catch (err) {
-            console.error('Error marking paid:', err);
-            showError('Failed to mark invoice as paid');
+            console.error('Error initiating Stripe payment:', err);
+            showError(err.response?.data?.error || 'Failed to initiate secure checkout');
         } finally {
             setPaying(false);
         }
@@ -87,6 +92,16 @@ const InvoiceDetail = () => {
                     <ArrowLeft className="w-4 h-4 mr-2" /> Back
                 </button>
                 <div className="flex gap-3">
+                    {!invoice.paid && userRole === 'user' && (
+                        <button
+                            onClick={handleStripePayment}
+                            disabled={paying}
+                            className="flex items-center gap-2 px-6 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-500/20 font-black"
+                        >
+                            {paying ? <Loader2 className="w-4 h-4 animate-spin" /> : <CreditCard className="w-4 h-4" />}
+                            Pay with Stripe
+                        </button>
+                    )}
                     {!invoice.paid && (userRole === 'admin' || userRole === 'provider') && (
                         <button
                             onClick={handleMarkPaid}

@@ -4,7 +4,7 @@ from rest_framework.authtoken.views import obtain_auth_token
 from .views import (
     UserViewSet, ProfileViewSet, CategoryViewSet, ProviderViewSet,
     RequestViewSet, JobViewSet, InvoiceViewSet, ReviewViewSet, DisputeViewSet, BidViewSet, AuditLogViewSet,
-    MessageViewSet, CustomAuthToken
+    MessageViewSet, CustomAuthToken, StripeCheckoutView, StripeWebhookView
 )
 from .views_settings import SystemSettingsViewSet
 from .views_ai import AIImageAnalysisView
@@ -30,4 +30,6 @@ urlpatterns = [
     path('profile/', UserViewSet.as_view({'get': 'me', 'put': 'me', 'patch': 'me'}), name='profile-detail'),
     path('auth/login/', CustomAuthToken.as_view(), name='api-token-auth'),
     path('auth/change-password/', UserViewSet.as_view({'post': 'change_password'}), name='auth-change-password'),
+    path('payments/stripe-checkout/', StripeCheckoutView.as_view(), name='stripe-checkout'),
+    path('payments/stripe-webhook/', StripeWebhookView.as_view(), name='stripe-webhook'),
 ]

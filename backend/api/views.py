@@ -14,6 +14,10 @@ from .notifications import notify_request_update, notify_job_update, send_notifi
 from rest_framework.authtoken.views import ObtainAuthToken
 from rest_framework.authtoken.models import Token
 from django.db.models import Q
+from .payments import create_checkout_session, process_webhook_event
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
+from rest_framework.views import APIView
 
 class CustomAuthToken(ObtainAuthToken):
     def post(self, request, *args, **kwargs):
@@ -795,3 +799,34 @@ class MessageViewSet(viewsets.ModelViewSet):
         ).update(is_read=True)
         
         return Response({'status': 'success', 'updated': updated})
+
+class StripeCheckoutView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        invoice_id = request.data.get('invoice_id')
+        success_url = request.data.get('success_url')
+        cancel_url = request.data.get('cancel_url')
+        
+        if not invoice_id:
+            return Response({'error': 'Invoice ID is required'}, status=400)
+            
+        try:
+            session = create_checkout_session(invoice_id, success_url, cancel_url)
+            return Response({'checkout_url': session.url, 'session_id': session.id})
+        except Exception as e:
+            return Response({'error': str(e)}, status=500)
+
+@method_decorator(csrf_exempt, name='dispatch')
+class StripeWebhookView(APIView):
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        payload = request.body
+        sig_header = request.META.get('HTTP_STRIPE_SIGNATURE')
+        
+        try:
+            process_webhook_event(payload, sig_header)
+            return Response({'status': 'success'})
+        except Exception as e:
+            return Response({'error': str(e)}, status=400)

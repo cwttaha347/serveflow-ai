@@ -28,7 +28,11 @@ const AdminSettings = () => {
         gemini_api_key_1: '',
         gemini_api_key_2: '',
         gemini_api_key_3: '',
-        gemini_api_key_4: ''
+        gemini_api_key_4: '',
+        stripe_public_key: '',
+        stripe_secret_key: '',
+        stripe_webhook_secret: '',
+        stripe_mode: 'test'
     });
 
     const [stats, setStats] = useState({
@@ -269,6 +273,69 @@ const AdminSettings = () => {
                                                 />
                                             </div>
                                             <p className="text-[10px] text-slate-500">Threshold for provider withdrawals.</p>
+                                        </div>
+                                    </div>
+
+                                    <div className="p-8 bg-slate-50 dark:bg-slate-900/50 rounded-3xl border border-slate-100 dark:border-slate-700 space-y-6">
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <h4 className="font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                                                    <CreditCard className="w-5 h-5 text-emerald-600" />
+                                                    Stripe Gateway Configuration
+                                                </h4>
+                                                <p className="text-sm text-slate-500">Configure your API credentials for processing payments</p>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setSettings({ ...settings, stripe_mode: settings.stripe_mode === 'test' ? 'live' : 'test' })}
+                                                    className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter transition-all ${settings.stripe_mode === 'live' ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-500 dark:bg-slate-700'}`}
+                                                >
+                                                    {settings.stripe_mode === 'live' ? 'Live Mode' : 'Test Mode'}
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowApiKeys(!showApiKeys)}
+                                                    className="text-blue-600 text-sm font-bold hover:underline ml-2"
+                                                >
+                                                    {showApiKeys ? 'Hide Keys' : 'Show Keys'}
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-4">
+                                            <div className="space-y-2">
+                                                <label className="text-xs font-bold text-slate-500 uppercase">Stripe Publishable Key</label>
+                                                <input
+                                                    type={showApiKeys ? 'text' : 'password'}
+                                                    value={settings.stripe_public_key}
+                                                    onChange={(e) => setSettings({ ...settings, stripe_public_key: e.target.value })}
+                                                    placeholder="pk_test_..."
+                                                    className="w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl outline-none font-mono text-sm"
+                                                />
+                                            </div>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                <div className="space-y-2">
+                                                    <label className="text-xs font-bold text-slate-500 uppercase">Stripe Secret Key</label>
+                                                    <input
+                                                        type={showApiKeys ? 'text' : 'password'}
+                                                        value={settings.stripe_secret_key}
+                                                        onChange={(e) => setSettings({ ...settings, stripe_secret_key: e.target.value })}
+                                                        placeholder="sk_test_..."
+                                                        className="w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl outline-none font-mono text-sm"
+                                                    />
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <label className="text-xs font-bold text-slate-500 uppercase">Webhook Secret</label>
+                                                    <input
+                                                        type={showApiKeys ? 'text' : 'password'}
+                                                        value={settings.stripe_webhook_secret}
+                                                        onChange={(e) => setSettings({ ...settings, stripe_webhook_secret: e.target.value })}
+                                                        placeholder="whsec_..."
+                                                        className="w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl outline-none font-mono text-sm"
+                                                    />
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
