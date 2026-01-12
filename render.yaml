@@ -6,7 +6,7 @@ services:
     dockerContext: backend
     dockerfilePath: Dockerfile
     plan: free
-    releaseCommand: python manage.py migrate
+    preDeployCommand: python manage.py migrate
     envVars:
       - key: DATABASE_URL
         fromDatabase:
@@ -14,7 +14,7 @@ services:
           property: connectionString
       - key: REDIS_URL
         fromService:
-          type: redis
+          type: keyvalue
           name: serveflow-redis
           property: connectionString
       - key: DEBUG
@@ -54,13 +54,13 @@ services:
     dockerfilePath: Dockerfile
     plan: free
 
-# 5. Managed PostgreSQL
+  # 5. Managed Redis (Key Value Service)
+  - type: keyvalue
+    name: serveflow-redis
+    plan: free
+    ipAllowList: [] # Only allow internal access
+
+# 6. Managed PostgreSQL
 databases:
   - name: serveflow-db
     plan: free
-
-# 6. Managed Redis
-redis:
-  - name: serveflow-redis
-    plan: free
-    ipAllowList: [] # Only allow internal access
