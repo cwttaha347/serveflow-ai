@@ -23,39 +23,47 @@
             if (!element) return;
 
             if (typeof html2pdf === 'undefined') {
-                alert("The export library is loading. Please wait.");
+                alert("The export library is still loading. Please wait a moment.");
                 return;
             }
 
+            // Scroll to top to prevent canvas offsets
+            window.scrollTo(0, 0);
+
             const opt = {
-                margin: [10, 10, 10, 10],
+                margin: [15, 10, 15, 10], // 15mm Top/Bottom gaps for Header/Footer feel
                 filename: 'ServeFlow_AI_Thesis.pdf',
                 image: { type: 'jpeg', quality: 0.98 },
-                html2canvas: { scale: 2, useCORS: true, allowTaint: true, logging: false },
+                html2canvas: {
+                    scale: 2,
+                    useCORS: true,
+                    allowTaint: true,
+                    logging: false,
+                    letterRendering: true,
+                    scrollY: 0
+                },
                 jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-                pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+                pagebreak: {
+                    mode: ['css', 'legacy'], // Rely on our .page-break class and CSS break rules
+                    before: '.page-break',
+                    avoid: ['img', '.diagram-container', '.abstract-box', 'h1', 'h2', 'h3']
+                }
             };
 
             const downloadBtn = document.querySelector('button.btn');
             const originalText = downloadBtn.innerHTML;
-            downloadBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+            downloadBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating...';
             downloadBtn.disabled = true;
 
+            // Generate the PDF
             html2pdf().set(opt).from(element).save().then(() => {
                 downloadBtn.innerHTML = originalText;
                 downloadBtn.disabled = false;
             }).catch(err => {
-                console.error("PDF Generation error:", err);
+                console.error("PDF Export failed:", err);
                 downloadBtn.innerHTML = originalText;
                 downloadBtn.disabled = false;
-
-                // Detailed alert for SecurityError (Tainted Canvas)
-                const msg = "PDF Export Error: Browser security blocks local file image processing.\n\n" +
-                    "SOLUTION: For a perfect PDF, please use your browser's 'Print' feature:\n" +
-                    "1. Press Ctrl + P\n" +
-                    "2. Select 'Save as PDF' (Destination)\n" +
-                    "3. Click Save/Print";
-                alert(msg);
+                alert("The PDF export failed. Recommended: Use 'Ctrl + P' and 'Save as PDF'.");
             });
         };
     </script>
@@ -88,18 +96,46 @@
             scroll-behavior: smooth;
         }
 
+        section {
+            padding: 50px 70px;
+            page-break-inside: auto;
+            break-inside: auto;
+            position: relative;
+        }
+
+        /* Prevent headings from being stranded at bottom */
+        h1,
+        h2,
+        h3,
+        h4 {
+            page-break-after: avoid;
+            break-after: avoid;
+        }
+
+        /* Protect certain containers from splitting */
+        .diagram-container,
+        .abstract-box,
+        .front-page {
+            page-break-inside: avoid;
+            break-inside: avoid;
+        }
+
+
         .container {
-            max-width: 900px;
-            margin: 40px auto;
+            max-width: 850px;
+            /* Standardize width for better PDF capture */
+            margin: 100px auto;
+            /* Balanced 100px top and bottom margin */
             background: var(--glass-bg);
             backdrop-filter: blur(15px);
             -webkit-backdrop-filter: blur(15px);
             border: 1px solid var(--glass-border);
             border-radius: 24px;
             box-shadow: 0 20px 50px rgba(0, 0, 0, 0.1);
-            padding: 60px 80px;
+            padding: 0;
             position: relative;
-            overflow: hidden;
+            overflow: visible;
+            /* CRITICAL for html2pdf */
         }
 
         h1,
@@ -147,11 +183,14 @@
 
         .front-page {
             text-align: center;
-            min-height: 85vh;
+            min-height: 950px;
+            /* High enough to fill an A4 page */
             display: flex;
             flex-direction: column;
             justify-content: center;
-            padding-bottom: 100px;
+            padding: 60px 80px;
+            page-break-after: always;
+            break-after: page;
         }
 
         .university-info {
@@ -224,9 +263,13 @@
         }
 
         .page-break {
+            display: block;
+            height: 0;
+            margin: 0;
+            padding: 0;
             page-break-before: always;
-            margin: 80px 0 40px 0;
-            height: 1px;
+            break-before: page;
+            clear: both;
         }
 
         .abstract-box {
@@ -240,54 +283,56 @@
 
         /* Print optimization */
         @media print {
-            @page {
-                margin: 1.5cm;
+            body {
+                background: white !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                print-color-adjust: exact;
+                -webkit-print-color-adjust: exact;
             }
 
             .controls {
-                display: none;
-            }
-
-            body {
-                background: white;
-                padding: 0;
+                display: none !important;
             }
 
             .container {
-                box-shadow: none;
-                margin: 0;
-                padding: 0;
-                border: none;
-                max-width: 100%;
-                background: white;
-                backdrop-filter: none;
+                box-shadow: none !important;
+                border: none !important;
+                background: white !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                border-radius: 0 !important;
+            }
+
+            section {
+                padding: 15mm 15mm !important;
+                /* Balanced vertical and horizontal padding */
+                page-break-after: auto !important;
+                break-after: auto !important;
+            }
+
+            .front-page {
+                min-height: 260mm !important;
+                /* Force nearly full A4 page */
+                padding: 20mm 15mm !important;
+                display: flex !important;
+                flex-direction: column !important;
+                justify-content: center !important;
             }
 
             .page-break {
-                border: none;
-                margin: 0;
-                height: 0;
-                page-break-before: always;
-            }
-
-            h1,
-            h2,
-            h3 {
-                page-break-after: avoid;
-            }
-
-            p,
-            .diagram-container {
-                page-break-inside: avoid;
+                page-break-before: always !important;
+                break-before: page !important;
+                height: 0 !important;
+                margin: 0 !important;
             }
 
             img {
                 max-width: 100% !important;
-                border-radius: 0;
-            }
-
-            .front-page {
-                min-height: 100vh;
+                height: auto !important;
+                page-break-inside: avoid !important;
             }
         }
     </style>
@@ -315,28 +360,44 @@
         <section class="front-page">
             <h1 style="color: var(--primary); margin-bottom: 20px;">SERVEFLOW AI</h1>
             <h3 style="text-align: center; color: var(--text-main); font-weight: 400; font-size: 1.5rem;">
-                Next-Generation Intelligent Service Marketplace & Resource Management Ecosystem</h3>
-
-            <p style="text-align: center; margin-top: 80px; font-family: 'Inter', sans-serif;">
-                A Thesis Submitted in Partial Fulfillment of the Requirements for the Degree of<br>
-                <span style="font-weight: 700; font-size: 1.3rem;">Bachelor of Science in Computer Science</span>
-            </p>
-
-            <div style="margin-top: 80px;">
-                <p style="text-align: center;">By<br><span class="highlight" style="font-size: 1.4rem;">Student
-                        Researcher</span></p>
-                <p style="text-align: center; margin-top: 30px;">Supervised By<br><span class="highlight"
-                        style="font-size: 1.2rem;">Faisal Ahmed</span></p>
-            </div>
+                Next-Generation Intelligent AI Based Services Aggregator</h3>
 
             <div class="university-info">
                 Department of Computer Science<br>
                 Iqra University North Campus (IUNC)<br>
                 2026
             </div>
-        </section>
 
+            <div style="margin-top: 80px;">
+                <p style="text-align: center; margin-bottom: 10px; font-weight: 600;">Submitted By:</p>
+                <table
+                    style="margin: 0 auto; border-collapse: separate; border-spacing: 30px 5px; font-family: 'Inter', sans-serif;">
+                    <tr>
+                        <td style="font-weight: 700; text-align: left; font-size: 1.1rem;">Zain Ali</td>
+                        <td style="color: var(--text-muted); font-weight: 500;">12135</td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight: 700; text-align: left; font-size: 1.1rem;">Kamal Hussain</td>
+                        <td style="color: var(--text-muted); font-weight: 500;">16234</td>
+                    </tr>
+
+                    <tr>
+                        <td style="font-weight: 700; text-align: left; font-size: 1.1rem;">Naushad Ahmed</td>
+                        <td style="color: var(--text-muted); font-weight: 500;">16548</td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight: 700; text-align: left; font-size: 1.1rem;">Muhammad Muawia</td>
+                        <td style="color: var(--text-muted); font-weight: 500;">14023</td>
+                    </tr>
+                </table>
+                <p style="text-align: center; margin-top: 30px;">Supervised By<br><span class="highlight"
+                        style="font-size: 1.2rem;">Faisal Ahmed</span></p>
+            </div>
+
+
+        </section>
         <div class="page-break"></div>
+
 
         <!-- UNDERTAKING -->
         <section id="undertaking">
@@ -349,11 +410,11 @@
             </p>
             <div style="margin-top: 80px;">
                 <p>Signature: __________________________</p>
-                <p>Date: January 11, 2026</p>
+                <p>Date: January 13, 2026</p>
             </div>
         </section>
 
-        <div class="page-break"></div>
+
 
         <!-- ACKNOWLEDGEMENT -->
         <section id="acknowledgement">
@@ -440,6 +501,8 @@
                 <img src="../assets/thesis_diagrams/navigation_flow.png" alt="Navigation Flow Diagram">
                 <span class="diagram-caption">Figure 1.1: System Navigation and User Experience Flow</span>
             </div>
+            <div class="page-break"></div>
+
 
             <h3>1.1 Background</h3>
             <p>The current service industry faces significant inefficiencies in connecting seekers with reliable
@@ -456,8 +519,8 @@
                     class="highlight">10 minutes</span>.</p>
         </section>
 
-        <div class="page-break"></div>
 
+        <div class="page-break"></div>
         <!-- CHAPTER 2 -->
         <section id="chapter2">
             <h1 style="text-align: left; color: var(--primary);">CHAPTER 2: STATE OF THE ART</h1>
@@ -488,6 +551,7 @@
                 <img src="../assets/thesis_diagrams/process_flowchart.png" alt="Process Flowchart">
                 <span class="diagram-caption">Figure 3.1: Development Methodology and Lifecycle Flowchart</span>
             </div>
+            <div class="page-break"></div>
 
             <h3>3.1 Technical Stack</h3>
             <ul style="margin-left: 25px; margin-bottom: 20px;">
@@ -541,11 +605,11 @@
                 estimate problem urgency from site photos, generating technical directives.</p>
 
             <div class="diagram-container" id="fig5.1">
-                <img src="../assets/docs_screenshots/ss1.PNG" alt="AI Analysis Screenshot">
+                <img src="../assets/docs_screenshots/implementation-ai-analyze.PNG" alt="AI Analysis Screenshot">
                 <span class="diagram-caption">Figure 5.1: AI Vision Module detecting faults and suggesting repair
                     titles</span>
             </div>
-
+            <div class="page-break"></div>
             <h3>5.2 Matching Engine Scoring</h3>
             <p>The logic follows a weighted heuristic to ensure the most relevant provider is matched:</p>
             <ul style="margin-left: 25px; margin-bottom: 20px;">
@@ -556,7 +620,7 @@
             </ul>
 
             <div class="diagram-container" id="fig5.2">
-                <img src="../assets/docs_screenshots/ss2.PNG" alt="Matching Results">
+                <img src="../assets/docs_screenshots/ai-matching.PNG" alt="Matching Results">
                 <span class="diagram-caption">Figure 5.2: Geospatial Matching Engine ranked results view</span>
             </div>
 
@@ -565,7 +629,7 @@
                 track job status from 'Accepted' to 'Completed' live.</p>
         </section>
 
-        <div class="page-break"></div>
+
 
         <!-- CHAPTER 6 -->
         <section id="chapter6">
@@ -575,7 +639,7 @@
                 <img src="../assets/thesis_diagrams/gantt_chart.png" alt="Gantt Chart">
                 <span class="diagram-caption">Figure 6.1: Project Development Timeline (Gantt Chart)</span>
             </div>
-
+            <div class="page-break"></div>
             <h3>6.1 Societal Impact</h3>
             <p>ServeFlow empowers small-scale providers by providing high-quality leads without marketing overhead,
                 leveling the playing field in the local service economy.</p>
@@ -602,6 +666,14 @@
                 <li>PostGIS (2024). <em>Spatial Database Systems for Marketplaces</em>.</li>
             </ul>
         </section>
+
+        <!-- FOOTER GAP & INFO -->
+        <footer
+            style="padding: 40px 80px; text-align: center; border-top: 1px solid var(--glass-border); margin-top: 40px; color: var(--text-muted); font-size: 0.9rem;">
+            <p style="font-family: 'Inter', sans-serif; text-align: center;">&copy; 2026 ServeFlow AI - Final Year
+                Project |
+                IQRA University North Campus</p>
+        </footer>
     </div>
 
     <!-- Script to handle jump links -->
