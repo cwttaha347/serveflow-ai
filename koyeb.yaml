@@ -5,6 +5,7 @@ services:
     image: python:3.11-slim
     build:
       dockerfile: backend/Dockerfile
+      context: backend
     env:
       - key: DEBUG
         value: "False"
@@ -27,6 +28,7 @@ services:
     image: node:18-slim
     build:
       dockerfile: frontend/Dockerfile
+      context: frontend
     env:
       - key: VITE_API_URL
         value: ${VITE_API_URL}
@@ -41,6 +43,7 @@ services:
     image: python:3.11-slim
     build:
       dockerfile: ai_service/Dockerfile
+      context: ai_service
     env:
       - key: GEMINI_API_KEY
         value: ${GEMINI_API_KEY}
@@ -53,6 +56,7 @@ services:
     image: python:3.11-slim
     build:
       dockerfile: matching_service/Dockerfile
+      context: matching_service
     ports:
       - port: 8002
         protocol: http

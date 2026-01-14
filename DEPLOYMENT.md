@@ -8,12 +8,35 @@ This guide describes how to deploy the ServeFlow AI project on Koyeb free hostin
 3.  **PostgreSQL Database**: Koyeb provides a managed PostgreSQL. You'll need the connection string.
 4.  **Redis (Optional but Recommended)**: For WebSocket support, use [Upstash Redis](https://upstash.com/) (Free Tier).
 
-## Deployment Steps
+### 1. Choose Deployment Method
 
-### 1. Create a New Web Service on Koyeb
-Connect your GitHub repository and follow these settings for each service:
+Koyeb supports two main ways to deploy from GitHub:
+1.  **Buildpacks (Simple)**: Uses the `Procfile` and `build.sh` scripts I've created.
+2.  **Docker (Recommended)**: Uses the `Dockerfile` in each directory. This is often more reliable for complex environments.
+
+### 2. Deployment via Docker (Koyeb Docker Builder)
+
+Connect your GitHub repository and follow these settings:
 
 #### **Backend (Django)**
+- **Builder**: Select **Docker**
+- **Dockerfile Path**: `backend/Dockerfile`
+- **Docker Context**: `backend` (Important!)
+- **Environment Variables**: Same as listed in the Buildpacks section below.
+
+#### **Frontend (React)**
+- **Builder**: Select **Docker**
+- **Dockerfile Path**: `frontend/Dockerfile`
+- **Docker Context**: `frontend`
+- **Environment Variables**: Same as listed below.
+
+#### **Microservices (AI & Matching)**
+- **Builder**: Select **Docker**
+- **Dockerfile Path**: `ai_service/Dockerfile` (or `matching_service/Dockerfile`)
+- **Docker Context**: `ai_service` (or `matching_service`)
+
+### 3. Deployment via Buildpacks (Alternative)
+If you prefer Buildpacks, use these settings:
 - **Service Name**: `serveflow-backend`
 - **Build Command**: `sh build.sh`
 - **Run Command**: `daphne -b 0.0.0.0 -p $PORT serveflow.asgi:application`
