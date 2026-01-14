@@ -2,9 +2,8 @@ version: "1.0"
 services:
   - name: backend
     type: web
-    image: python:3.11-slim
     build:
-      dockerfile: Dockerfile
+      dockerfile: backend/Dockerfile
       context: backend
     env:
       - key: DEBUG
@@ -25,9 +24,8 @@ services:
 
   - name: frontend
     type: web
-    image: node:18-slim
     build:
-      dockerfile: Dockerfile
+      dockerfile: frontend/Dockerfile
       context: frontend
     env:
       - key: VITE_API_URL
@@ -40,9 +38,8 @@ services:
 
   - name: ai-service
     type: web
-    image: python:3.11-slim
     build:
-      dockerfile: Dockerfile
+      dockerfile: ai_service/Dockerfile
       context: ai_service
     env:
       - key: GEMINI_API_KEY
@@ -53,9 +50,8 @@ services:
 
   - name: matching-service
     type: web
-    image: python:3.11-slim
     build:
-      dockerfile: Dockerfile
+      dockerfile: matching_service/Dockerfile
       context: matching_service
     ports:
       - port: 8002
