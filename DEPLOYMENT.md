@@ -20,19 +20,19 @@ Connect your GitHub repository and follow these settings:
 
 #### **Backend (Django)**
 - **Builder**: Select **Docker**
-- **Dockerfile Path**: `backend/Dockerfile`
-- **Docker Context**: `backend` (Important!)
+- **Dockerfile Path**: `Dockerfile` (relative to context)
+- **Docker Context**: `backend`
 - **Environment Variables**: Same as listed in the Buildpacks section below.
 
 #### **Frontend (React)**
 - **Builder**: Select **Docker**
-- **Dockerfile Path**: `frontend/Dockerfile`
+- **Dockerfile Path**: `Dockerfile`
 - **Docker Context**: `frontend`
 - **Environment Variables**: Same as listed below.
 
 #### **Microservices (AI & Matching)**
 - **Builder**: Select **Docker**
-- **Dockerfile Path**: `ai_service/Dockerfile` (or `matching_service/Dockerfile`)
+- **Dockerfile Path**: `Dockerfile`
 - **Docker Context**: `ai_service` (or `matching_service`)
 
 ### 3. Deployment via Buildpacks (Alternative)
