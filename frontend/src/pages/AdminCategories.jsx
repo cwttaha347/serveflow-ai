@@ -45,8 +45,11 @@ const AdminCategories = () => {
                 description: category.description,
                 base_price: category.base_price,
                 pricing_model: category.pricing_model,
-                is_active: category.is_active
+                is_active: category.is_active,
+                image: null  // Reset image to null for editing
             });
+            // Set image preview to existing image if available
+            setImagePreview(category.image ? (category.image.startsWith('http') ? category.image : `http://127.0.0.1:8000${category.image}`) : null);
         } else {
             setEditingCategory(null);
             setFormData({
@@ -103,7 +106,28 @@ const AdminCategories = () => {
             fetchCategories();
         } catch (error) {
             console.error('Error saving category:', error);
-            showError('Failed to save category');
+            console.error('Error response:', error.response);
+            console.error('Error response data:', error.response?.data);
+            console.error('Error response status:', error.response?.status);
+
+            // Display specific error message if available
+            let errorMessage = 'Failed to save category';
+            if (error.response?.data) {
+                const errorData = error.response.data;
+                if (typeof errorData === 'object') {
+                    // Get the first error message from the response
+                    const firstKey = Object.keys(errorData)[0];
+                    if (firstKey && errorData[firstKey]) {
+                        const firstError = Array.isArray(errorData[firstKey])
+                            ? errorData[firstKey][0]
+                            : errorData[firstKey];
+                        errorMessage = `${firstKey}: ${firstError}`;
+                    }
+                } else if (typeof errorData === 'string') {
+                    errorMessage = errorData;
+                }
+            }
+            showError(errorMessage);
         }
     };
 

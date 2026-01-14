@@ -1,0 +1,58 @@
+version: "1.0"
+services:
+  - name: backend
+    type: web
+    image: python:3.11-slim
+    build:
+      dockerfile: backend/Dockerfile
+    env:
+      - key: DEBUG
+        value: "False"
+      - key: DATABASE_URL
+        value: ${DATABASE_URL}
+      - key: REDIS_URL
+        value: ${REDIS_URL}
+      - key: SECRET_KEY
+        value: ${SECRET_KEY}
+      - key: ALLOWED_HOSTS
+        value: ${ALLOWED_HOSTS}
+      - key: CORS_ALLOWED_ORIGINS
+        value: ${CORS_ALLOWED_ORIGINS}
+    ports:
+      - port: 8000
+        protocol: http
+
+  - name: frontend
+    type: web
+    image: node:18-slim
+    build:
+      dockerfile: frontend/Dockerfile
+    env:
+      - key: VITE_API_URL
+        value: ${VITE_API_URL}
+      - key: VITE_WS_URL
+        value: ${VITE_WS_URL}
+    ports:
+      - port: 80
+        protocol: http
+
+  - name: ai-service
+    type: web
+    image: python:3.11-slim
+    build:
+      dockerfile: ai_service/Dockerfile
+    env:
+      - key: GEMINI_API_KEY
+        value: ${GEMINI_API_KEY}
+    ports:
+      - port: 8001
+        protocol: http
+
+  - name: matching-service
+    type: web
+    image: python:3.11-slim
+    build:
+      dockerfile: matching_service/Dockerfile
+    ports:
+      - port: 8002
+        protocol: http

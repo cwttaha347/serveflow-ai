@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "tailwindcss/theme" layer(theme);
 
 /* Custom keyframes */
 @keyframes blob {
@@ -64,7 +65,8 @@
 /* Custom Utilities */
 @layer utilities {
   .glass {
-    @apply bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl border border-white/20 dark:border-slate-800/50 shadow-xl;
+    background-color: #353535c7;
+    @apply backdrop-blur-xl border border-white/20 dark:border-slate-800/50 shadow-xl;
   }
 
   .glass-card {

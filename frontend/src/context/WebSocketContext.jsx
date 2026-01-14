@@ -31,7 +31,7 @@ export const WebSocketProvider = ({ children }) => {
     const connect = () => {
         if (wsRef.current) return; // Already connecting/connected
 
-        const wsUrl = `ws://localhost:8000/ws/notifications/?token=${token}`;
+        const wsUrl = (import.meta.env.VITE_WS_URL || `ws://${window.location.hostname}:8000/ws/notifications/`) + `?token=${token}`;
         console.log("Connecting to WebSocket:", wsUrl);
 
         const ws = new WebSocket(wsUrl);

@@ -1,7 +1,10 @@
 import axios from 'axios';
 
+// Automatically use environment variable or the current hostname for development
+const API_BASE_URL = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8000/api/`;
+
 const api = axios.create({
-    baseURL: 'http://localhost:8000/api/',
+    baseURL: API_BASE_URL,
     headers: {
         'Content-Type': 'application/json',
     },

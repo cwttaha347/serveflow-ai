@@ -52,6 +52,25 @@ class CategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = Category
         fields = '__all__'
+    
+    def validate_name(self, value):
+        """
+        Check that the name is unique, excluding the current instance during updates
+        """
+        # Get the instance being updated (if this is an update operation)
+        instance = self.instance
+        
+        # Check if another category with this name exists
+        queryset = Category.objects.filter(name=value)
+        
+        # If updating, exclude the current instance from the uniqueness check
+        if instance:
+            queryset = queryset.exclude(pk=instance.pk)
+        
+        if queryset.exists():
+            raise serializers.ValidationError("A category with this name already exists.")
+        
+        return value
 
 class ProviderSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)

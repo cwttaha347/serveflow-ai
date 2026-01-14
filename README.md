@@ -300,10 +300,13 @@ After running `create_sample_data.py`, you'll have:
 - Configure logging
 
 ### Recommended Hosting
-- **Backend**: Railway, Heroku, AWS Elastic Beanstalk
-- **Frontend**: Vercel, Netlify
-- **Database**: PostgreSQL on AWS RDS, Heroku Postgres
-- **Redis**: Redis Cloud, AWS ElastiCache
+- **Backend**: Koyeb (Free Tier), Railway, Fly.io
+- **Frontend**: Koyeb (Static site), Vercel, Netlify
+- **Database**: Koyeb Managed PostgreSQL
+- **Redis**: Upstash Redis (Free Tier)
+
+### 🚀 Deploy to Koyeb
+For detailed instructions on deploying this project to Koyeb, see the **[Koyeb Deployment Guide](file:///E:/ServeFlow-ai/DEPLOYMENT.md)**.
 
 ## 📄 License
 MIT License
