@@ -231,6 +231,11 @@ CORS_ALLOWED_ORIGINS = os.environ.get(
 # Actually, let's just use CORS_ALLOW_ALL_ORIGINS = DEBUG for simplicity in dev.
 CORS_ALLOW_ALL_ORIGINS = DEBUG
 
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^https://.*\.hf\.space$",
+    r"^https://.*\.koyeb\.app$",
+]
+
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [

@@ -3,14 +3,15 @@ import { getDraft, markResumeAfterAuth } from './utils/chatbotDraft';
 
 // Automatically use environment variable or the current hostname
 const getBaseUrl = () => {
-    if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL;
-    
-    // In production (Hugging Face or similar), we serve everything on the same origin
+    // In production (Hugging Face or similar), we prefer serving everything on the same origin
+    // This ensures monolithic deployments work correctly regardless of env variables.
     if (process.env.NODE_ENV === 'production') {
         const protocol = window.location.protocol;
         const host = window.location.host; // includes port if any
         return `${protocol}//${host}/api/`;
     }
+
+    if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL;
     
     // Fallback for local development
     return `http://${window.location.hostname}:8000/api/`;
