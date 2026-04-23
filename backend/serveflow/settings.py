@@ -86,7 +86,8 @@ if ENABLE_SSL or not DEBUG:
 ROOT_URLCONF = "serveflow.urls"
 
 # Integrate React frontend build with Django static serving
-FRONTEND_DIST = os.path.join(BASE_DIR.parent, 'frontend_dist')
+import os
+FRONTEND_DIST = BASE_DIR / 'frontend_dist'
 
 TEMPLATES = [
     {
