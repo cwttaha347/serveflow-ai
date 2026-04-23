@@ -1,4 +1,14 @@
+---
+title: serveflowai
+emoji: 🏢
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+pinned: false
+---
+
 # ServeFlow AI - AI-Powered Service Marketplace
+
 
 ## 🚀 Overview
 **ServeFlow AI** is an intelligent service aggregator platform powered by Google Gemini AI that connects customers with verified service providers through smart matching, real-time notifications, and a comprehensive bidding system.
