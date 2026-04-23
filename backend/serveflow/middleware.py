@@ -20,6 +20,15 @@ class SecurityHeadersMiddleware:
         response['Referrer-Policy'] = 'strict-origin-when-cross-origin'
         
         # Content Security Policy
-        response['Content-Security-Policy'] = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';"
+        csp = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+            "img-src 'self' data: blob: https://images.unsplash.com https://*.stripe.com; "
+            "font-src 'self' https://fonts.gstatic.com; "
+            "frame-src 'self' https://js.stripe.com https://hooks.stripe.com; "
+            "connect-src 'self' https://serveflow-backend.koyeb.app wss://serveflow-backend.koyeb.app https://api.stripe.com;"
+        )
+        response['Content-Security-Policy'] = csp
         
         return response
