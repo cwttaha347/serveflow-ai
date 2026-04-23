@@ -6,8 +6,10 @@ COPY frontend/package*.json ./
 RUN npm install
 # Copy frontend source
 COPY frontend/ ./
-# Build the production assets
+# Build the production assets with the correct base path
+ENV NODE_ENV=production
 RUN npm run build
+
 
 # --- Stage 2: Final Backend Image ---
 FROM python:3.11-slim
