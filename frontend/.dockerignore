@@ -1,0 +1,11 @@
+node_modules
+dist
+.env
+.env.production
+.git
+.github
+.koyeb
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.eslintcache

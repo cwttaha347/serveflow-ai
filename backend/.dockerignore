@@ -1,0 +1,15 @@
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.env
+db.sqlite3
+media/
+staticfiles/
+node_modules/
+.git
+.github
+.koyeb
