@@ -29,3 +29,5 @@ Pillow>=10.1.0
 pillow-heif>=0.13.0
 requests>=2.31.0
 stripe>=7.0.0
+reportlab>=4.0.0
+
