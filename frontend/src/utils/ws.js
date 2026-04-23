@@ -29,7 +29,16 @@ export const buildWsBase = (path = '/ws/notifications/') => {
     }
 
     const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const host = window.location.host; // This already includes the port (blank in production, :8000 in dev)
+    
+    // In production, we don't want a hardcoded :8000
+    if (process.env.NODE_ENV === 'production') {
+        return `${protocol}://${host}${normalizedPath.replace(/\/$/, '')}`;
+    }
+    
+    // For local dev where backend is on 8000 but frontend on 5173
     return `${protocol}://${window.location.hostname}:8000${normalizedPath.replace(/\/$/, '')}`;
+
 };
 
 export const buildWsUrl = (path, token) => {

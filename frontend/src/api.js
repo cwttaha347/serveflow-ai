@@ -1,16 +1,25 @@
 import axios from 'axios';
 import { getDraft, markResumeAfterAuth } from './utils/chatbotDraft';
 
-// Automatically use environment variable or the current hostname for development
+// Automatically use environment variable or the current hostname
 const getBaseUrl = () => {
     if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL;
+    
+    // In production (Hugging Face or similar), we serve everything on the same origin
+    if (process.env.NODE_ENV === 'production') {
+        const protocol = window.location.protocol;
+        const host = window.location.host; // includes port if any
+        return `${protocol}//${host}/api/`;
+    }
+    
+    // Fallback for local development
     return `http://${window.location.hostname}:8000/api/`;
 };
 
 const API_BASE_URL = getBaseUrl();
-console.log('API Base URL:', API_BASE_URL);
 
 const api = axios.create({
+
     baseURL: API_BASE_URL,
     headers: {
         'Content-Type': 'application/json',
