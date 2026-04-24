@@ -173,6 +173,22 @@ Return ONLY valid JSON. No markdown. No explanations.
             admin.set_password('admin123')
             admin.save()
 
+            # Create Taha user (requested by user)
+            taha, _ = User.objects.get_or_create(
+                username='Taha',
+                defaults={
+                    'email': 'taha@serveflow.ai',
+                    'first_name': 'Taha',
+                    'last_name': 'User',
+                    'role': 'admin',
+                    'is_staff': True,
+                    'is_superuser': True,
+                    'is_email_verified': True,
+                }
+            )
+            taha.set_password('Taha#@12345')
+            taha.save()
+
             provider_specs = [
                 ('pro_plumber', 'Plumbing', 4.8, 120, Decimal('1250')),
                 ('pro_electric', 'Electrical', 4.7, 100, Decimal('1180')),
