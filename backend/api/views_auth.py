@@ -61,10 +61,15 @@ class RequestOTPView(APIView):
         # Send Email (async task)
         send_otp_email.delay(email, otp)
 
-        return Response({
+        response_data = {
             'message': generic['message'],
             'expires_in_seconds': expiry_seconds
-        })
+        }
+        
+        if settings.DEBUG:
+            response_data['debug_otp'] = otp
+
+        return Response(response_data)
 
 class VerifyOTPView(APIView):
     authentication_classes = []

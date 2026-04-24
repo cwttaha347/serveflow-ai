@@ -89,14 +89,18 @@ const Login = () => {
                 role: registerData.role,
                 category_ids: registerData.role === 'provider' ? registerData.category_ids : []
             });
+            let debugOtp = '';
             try {
-                await api.post('auth/request-otp/', { email: registerData.email });
+                const otpRes = await api.post('auth/request-otp/', { email: registerData.email });
+                if (otpRes.data?.debug_otp) {
+                    debugOtp = otpRes.data.debug_otp;
+                }
             } catch (otpErr) {
                 console.warn('OTP request failed after signup', otpErr);
             }
             localStorage.setItem('verificationEmail', registerData.email);
             success('Account created! Verify your email first.');
-            navigate('/verify-otp', { state: { email: registerData.email } });
+            navigate('/verify-otp', { state: { email: registerData.email, debug_otp: debugOtp } });
 
             // Skip auto-login until verification is complete.
         } catch (err) {
