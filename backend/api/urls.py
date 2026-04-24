@@ -50,8 +50,8 @@ urlpatterns = [
     
     # Auth Endpoints
     path('auth/login/', CustomAuthToken.as_view(), name='login'),
-    path('auth/otp/request/', RequestOTPView.as_view(), name='otp-request'),
-    path('auth/otp/verify/', VerifyOTPView.as_view(), name='otp-verify'),
+    path('auth/request-otp/', RequestOTPView.as_view(), name='otp-request'),
+    path('auth/verify-otp/', VerifyOTPView.as_view(), name='otp-verify'),
     path('auth/verify-email/request/', RequestEmailVerificationLinkView.as_view(), name='verify-email-request'),
     path('auth/verify-email/confirm/', VerifyEmailLinkView.as_view(), name='verify-email-confirm'),
 
