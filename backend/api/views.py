@@ -38,6 +38,7 @@ from .security import (
 
 @method_decorator(csrf_exempt, name='dispatch')
 class CustomAuthToken(ObtainAuthToken):
+    authentication_classes = []
     throttle_scope = "auth_login"
 
     def post(self, request, *args, **kwargs):

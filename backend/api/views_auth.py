@@ -18,6 +18,7 @@ from django.views.decorators.csrf import csrf_exempt
 
 @method_decorator(csrf_exempt, name='dispatch')
 class RequestOTPView(APIView):
+    authentication_classes = []
     permission_classes = [AllowAny]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "auth_otp"
@@ -66,6 +67,7 @@ class RequestOTPView(APIView):
         })
 
 class VerifyOTPView(APIView):
+    authentication_classes = []
     permission_classes = [AllowAny]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "auth_otp_verify"
@@ -147,6 +149,7 @@ class RequestEmailVerificationLinkView(APIView):
 
 
 class VerifyEmailLinkView(APIView):
+    authentication_classes = []
     permission_classes = [AllowAny]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "auth_otp_verify"
