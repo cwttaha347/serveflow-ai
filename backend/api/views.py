@@ -36,6 +36,7 @@ from .security import (
     require_verified_email, get_provider_for_user, get_worker_for_user,
 )
 
+@method_decorator(csrf_exempt, name='dispatch')
 class CustomAuthToken(ObtainAuthToken):
     throttle_scope = "auth_login"
 

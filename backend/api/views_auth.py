@@ -13,6 +13,10 @@ from django.conf import settings
 from .models import User, EmailOTP, EmailVerificationToken
 from .tasks import send_otp_email
 
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_exempt
+
+@method_decorator(csrf_exempt, name='dispatch')
 class RequestOTPView(APIView):
     permission_classes = [AllowAny]
     throttle_classes = [ScopedRateThrottle]
