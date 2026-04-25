@@ -65,9 +65,6 @@ class RequestOTPView(APIView):
             'message': generic['message'],
             'expires_in_seconds': expiry_seconds
         }
-        
-        if settings.DEBUG:
-            response_data['debug_otp'] = otp
 
         return Response(response_data)
 

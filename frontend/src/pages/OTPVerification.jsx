@@ -16,29 +16,16 @@ const OTPVerification = () => {
     const navigate = useNavigate();
     const location = useLocation();
     const emailFromState = location.state?.email;
-    const debugOtpFromState = location.state?.debug_otp;
     const emailFromStorage = localStorage.getItem('verificationEmail');
     const email = emailFromState || emailFromStorage || '';
 
     useEffect(() => {
-        // Pre-fill debug OTP if available
-        if (debugOtpFromState && typeof debugOtpFromState === 'string') {
-            const charArray = debugOtpFromState.split('');
-            setOtp((prev) => {
-                const newOtp = [...prev];
-                for (let i = 0; i < 6; i++) {
-                    newOtp[i] = charArray[i] || '';
-                }
-                return newOtp;
-            });
-        }
-
         const interval = setInterval(() => {
             setTimer((prev) => (prev > 0 ? prev - 1 : 0));
             setResendTimer((prev) => (prev > 0 ? prev - 1 : 0));
         }, 100); // Using 100ms for smoother feel, though logical is 1s
         return () => clearInterval(interval);
-    }, [debugOtpFromState]);
+    }, []);
 
     const formatTime = (seconds) => {
         const mins = Math.floor(seconds / 10 / 60);
@@ -128,17 +115,7 @@ const OTPVerification = () => {
         setLoading(true);
         setError('');
         try {
-            const res = await api.post('auth/request-otp/', { email });
-            if (res.data?.debug_otp) {
-                const charArray = res.data.debug_otp.split('');
-                setOtp((prev) => {
-                    const newOtp = [...prev];
-                    for (let i = 0; i < 6; i++) {
-                        newOtp[i] = charArray[i] || '';
-                    }
-                    return newOtp;
-                });
-            }
+            await api.post('auth/request-otp/', { email });
             setResendTimer(600); // 1 minute cooldown
             setTimer(6000); // Reset main timer
         } catch (err) {

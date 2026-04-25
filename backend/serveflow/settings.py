@@ -190,7 +190,6 @@ MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
 # Email Configuration
-EMAIL_BACKEND = os.environ.get('EMAIL_BACKEND', 'django.core.mail.backends.smtp.EmailBackend')
 EMAIL_HOST = os.environ.get('EMAIL_HOST', 'smtp.gmail.com')
 EMAIL_PORT = int(os.environ.get('EMAIL_PORT', 587))
 EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'True').lower() == 'true'
@@ -198,9 +197,14 @@ EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'ServeFlow AI <noreply@serveflow.ai>')
 
+# Fallback to console backend if SMTP credentials aren't provided to prevent crashes
+if EMAIL_HOST_USER:
+    EMAIL_BACKEND = os.environ.get('EMAIL_BACKEND', 'django.core.mail.backends.smtp.EmailBackend')
+else:
+    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
 # --- ServeFlow v2.0 OTP & Security Settings ---
-# As per user request, this is OFF by default in code, but can be enabled via .env
-ENABLE_EMAIL_OTP = os.environ.get('ENABLE_EMAIL_OTP', 'False').lower() == 'true'
+ENABLE_EMAIL_OTP = os.environ.get('ENABLE_EMAIL_OTP', 'True').lower() == 'true'
 
 OTP_EXPIRY_SECONDS = int(os.environ.get('OTP_EXPIRY_SECONDS', 600))
 OTP_MAX_ATTEMPTS = int(os.environ.get('OTP_MAX_ATTEMPTS', 5))
