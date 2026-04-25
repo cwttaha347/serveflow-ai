@@ -159,7 +159,7 @@ def process_service_request(self, request_id):
         raise self.retry(exc=exc)
 
 @shared_task(bind=True, max_retries=5)
-def verify_provider_case(self, case_id):
+def process_verification_case(self, case_id):
     """
     Pillar B: AI Verification of Provider Documents
     """
