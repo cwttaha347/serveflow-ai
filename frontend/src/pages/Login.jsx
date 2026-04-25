@@ -88,6 +88,7 @@ const Login = () => {
                 phone: registerData.phone,
                 role: registerData.role,
                 category_ids: registerData.role === 'provider' ? registerData.category_ids : []
+            });
             try {
                 await api.post('auth/request-otp/', { email: registerData.email });
             } catch (otpErr) {
