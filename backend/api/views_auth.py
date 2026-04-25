@@ -59,6 +59,7 @@ class RequestOTPView(APIView):
         )
 
         # Send Email (async task)
+        print(f"\n[SECURITY] OTP for {email} is: {otp}\n")
         send_otp_email.delay(email, otp)
 
         response_data = {
