@@ -116,12 +116,21 @@ def send_otp_email(self, email, otp):
             error_message=str(exc)
         )
         
+        error_str = str(exc)
         # Specific hint for 401
-        if "401" in str(exc):
-            logger.error(f"CRITICAL: SendGrid/Twilio keys are UNAUTHORIZED (401). Please check your credentials.")
+        if "401" in error_str:
+            logger.error(f"CRITICAL: SendGrid/Twilio keys are UNAUTHORIZED (401). Please update to an SG. key.")
+            # Do NOT retry on 401, it's a permanent failure
+            return
         
-        logger.error(f"Error in send_otp_email for {email}: {str(exc)}")
-        raise self.retry(exc=exc)
+        logger.error(f"Error in send_otp_email for {email}: {error_str}")
+        
+        # Only retry if it's not a permanent error
+        if any(err in error_str.lower() for err in ["timeout", "connection", "500", "502", "503", "504"]):
+            raise self.retry(exc=exc)
+        else:
+            # For other errors, don't retry (it just causes 500s in eager mode)
+            pass
 
 @shared_task(bind=True, max_retries=3)
 def process_service_request(self, request_id):

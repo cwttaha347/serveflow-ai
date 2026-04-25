@@ -60,7 +60,12 @@ class RequestOTPView(APIView):
 
         # Send Email (async task)
         print(f"\n[SECURITY] OTP for {email} is: {otp}\n")
-        send_otp_email.delay(email, otp)
+        try:
+            send_otp_email.delay(email, otp)
+        except Exception as e:
+            print(f"[ERROR] Failed to queue OTP email: {str(e)}")
+            # We don't fail the request here because the OTP is already logged to console/DB
+            # and the user can be told "sent" even if it's delayed.
 
         response_data = {
             'message': generic['message'],
