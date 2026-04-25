@@ -146,7 +146,13 @@ class RequestEmailVerificationLinkView(APIView):
         
         sys_settings = SystemSettings.get_settings()
         
-        if sys_settings.smtp_user == 'apikey' and sys_settings.smtp_password:
+        is_sendgrid = (
+            sys_settings.smtp_user == 'apikey' or 
+            'sendgrid' in sys_settings.smtp_host.lower() or 
+            sys_settings.smtp_password.startswith('SG.')
+        )
+        
+        if is_sendgrid and sys_settings.smtp_password:
             url = "https://api.sendgrid.com/v3/mail/send"
             headers = {
                 "Authorization": f"Bearer {sys_settings.smtp_password}",

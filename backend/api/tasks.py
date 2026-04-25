@@ -41,8 +41,14 @@ def send_otp_email(self, email, otp):
         
         sys_settings = SystemSettings.get_settings()
         
-        # If they are using SendGrid, route through Web API to bypass Hugging Face SMTP blocks
-        if sys_settings.smtp_user == 'apikey' and sys_settings.smtp_password:
+        # If they are using SendGrid (detect by host or API key format), route through Web API
+        is_sendgrid = (
+            sys_settings.smtp_user == 'apikey' or 
+            'sendgrid' in sys_settings.smtp_host.lower() or 
+            sys_settings.smtp_password.startswith('SG.')
+        )
+        
+        if is_sendgrid and sys_settings.smtp_password:
             url = "https://api.sendgrid.com/v3/mail/send"
             headers = {
                 "Authorization": f"Bearer {sys_settings.smtp_password}",
