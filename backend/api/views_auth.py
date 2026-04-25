@@ -142,26 +142,47 @@ class RequestEmailVerificationLinkView(APIView):
         verify_link = f"{settings.FRONTEND_URL.rstrip('/')}/verify-email?token={raw_token}"
         from django.core.mail import get_connection
         from .models import SystemSettings
+        import requests
+        
         sys_settings = SystemSettings.get_settings()
-        connection = None
-        if sys_settings.smtp_user and sys_settings.smtp_password:
-            connection = get_connection(
-                backend='django.core.mail.backends.smtp.EmailBackend',
-                host=sys_settings.smtp_host,
-                port=sys_settings.smtp_port,
-                username=sys_settings.smtp_user,
-                password=sys_settings.smtp_password,
-                use_tls=sys_settings.smtp_use_tls
-            )
+        
+        if sys_settings.smtp_user == 'apikey' and sys_settings.smtp_password:
+            url = "https://api.sendgrid.com/v3/mail/send"
+            headers = {
+                "Authorization": f"Bearer {sys_settings.smtp_password}",
+                "Content-Type": "application/json"
+            }
+            data = {
+                "personalizations": [{"to": [{"email": request.user.email}]}],
+                "from": {"email": settings.DEFAULT_FROM_EMAIL or 'noreply@serveflow.ai'},
+                "subject": 'Verify your ServeFlow email',
+                "content": [
+                    {"type": "text/plain", "value": f'Click this link to verify your email: {verify_link}'}
+                ]
+            }
+            res = requests.post(url, json=data, headers=headers, timeout=10)
+            res.raise_for_status()
+        else:
+            connection = None
+            if sys_settings.smtp_user and sys_settings.smtp_password:
+                connection = get_connection(
+                    backend='django.core.mail.backends.smtp.EmailBackend',
+                    host=sys_settings.smtp_host,
+                    port=sys_settings.smtp_port,
+                    username=sys_settings.smtp_user,
+                    password=sys_settings.smtp_password,
+                    use_tls=sys_settings.smtp_use_tls,
+                    timeout=5
+                )
 
-        send_mail(
-            'Verify your ServeFlow email',
-            f'Click this link to verify your email: {verify_link}',
-            settings.DEFAULT_FROM_EMAIL or 'noreply@serveflow.ai',
-            [request.user.email],
-            fail_silently=True,
-            connection=connection
-        )
+            send_mail(
+                'Verify your ServeFlow email',
+                f'Click this link to verify your email: {verify_link}',
+                settings.DEFAULT_FROM_EMAIL or 'noreply@serveflow.ai',
+                [request.user.email],
+                fail_silently=True,
+                connection=connection
+            )
         return Response({'message': 'Verification link sent.'}, status=status.HTTP_200_OK)
 
 

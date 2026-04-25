@@ -37,24 +37,47 @@ def send_otp_email(self, email, otp):
         
         from django.core.mail import get_connection
         from .models import SystemSettings
+        import requests
         
         sys_settings = SystemSettings.get_settings()
-        connection = None
-        if sys_settings.smtp_user and sys_settings.smtp_password:
-            connection = get_connection(
-                backend='django.core.mail.backends.smtp.EmailBackend',
-                host=sys_settings.smtp_host,
-                port=sys_settings.smtp_port,
-                username=sys_settings.smtp_user,
-                password=sys_settings.smtp_password,
-                use_tls=sys_settings.smtp_use_tls
-            )
-
-        msg = EmailMultiAlternatives(subject, text_content, from_email, [email], connection=connection)
-        msg.attach_alternative(html_content, "text/html")
-        msg.send()
         
-        logger.info(f"OTP email sent to {email}")
+        # If they are using SendGrid, route through Web API to bypass Hugging Face SMTP blocks
+        if sys_settings.smtp_user == 'apikey' and sys_settings.smtp_password:
+            url = "https://api.sendgrid.com/v3/mail/send"
+            headers = {
+                "Authorization": f"Bearer {sys_settings.smtp_password}",
+                "Content-Type": "application/json"
+            }
+            data = {
+                "personalizations": [{"to": [{"email": email}]}],
+                "from": {"email": from_email},
+                "subject": subject,
+                "content": [
+                    {"type": "text/plain", "value": text_content},
+                    {"type": "text/html", "value": html_content}
+                ]
+            }
+            res = requests.post(url, json=data, headers=headers, timeout=10)
+            res.raise_for_status()
+            logger.info(f"OTP email sent to {email} via SendGrid Web API")
+        else:
+            # Fallback to standard SMTP for Gmail, etc.
+            connection = None
+            if sys_settings.smtp_user and sys_settings.smtp_password:
+                connection = get_connection(
+                    backend='django.core.mail.backends.smtp.EmailBackend',
+                    host=sys_settings.smtp_host,
+                    port=sys_settings.smtp_port,
+                    username=sys_settings.smtp_user,
+                    password=sys_settings.smtp_password,
+                    use_tls=sys_settings.smtp_use_tls,
+                    timeout=5
+                )
+
+            msg = EmailMultiAlternatives(subject, text_content, from_email, [email], connection=connection)
+            msg.attach_alternative(html_content, "text/html")
+            msg.send()
+            logger.info(f"OTP email sent to {email} via SMTP")
     except Exception as exc:
         logger.error(f"Error sending OTP email to {email}: {str(exc)}")
         raise self.retry(exc=exc)
