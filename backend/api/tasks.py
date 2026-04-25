@@ -41,19 +41,32 @@ def send_otp_email(self, email, otp):
         
         sys_settings = SystemSettings.get_settings()
         
-        # If they are using SendGrid (detect by host or API key format), route through Web API
+        # Check if this is a SendGrid configuration
         is_sendgrid = (
             sys_settings.smtp_user == 'apikey' or 
-            'sendgrid' in sys_settings.smtp_host.lower() or 
-            sys_settings.smtp_password.startswith('SG.')
+            'sendgrid' in sys_settings.smtp_host.lower() or
+            sys_settings.smtp_password.startswith('SG.') or
+            (sys_settings.smtp_user and sys_settings.smtp_user.startswith('SK'))
         )
         
-        if is_sendgrid and sys_settings.smtp_password:
+        if is_sendgrid:
             url = "https://api.sendgrid.com/v3/mail/send"
-            headers = {
-                "Authorization": f"Bearer {sys_settings.smtp_password}",
-                "Content-Type": "application/json"
-            }
+            
+            # Handle different auth types
+            if sys_settings.smtp_user.startswith('SK'):
+                # Twilio Style Basic Auth (SID:Secret)
+                from requests.auth import HTTPBasicAuth
+                auth = HTTPBasicAuth(sys_settings.smtp_user, sys_settings.smtp_password)
+                headers = {"Content-Type": "application/json"}
+            else:
+                # Standard SendGrid API Key (Bearer)
+                auth = None
+                api_key = sys_settings.smtp_password
+                headers = {
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json"
+                }
+
             data = {
                 "personalizations": [{"to": [{"email": email}]}],
                 "from": {"email": from_email},
@@ -63,7 +76,7 @@ def send_otp_email(self, email, otp):
                     {"type": "text/html", "value": html_content}
                 ]
             }
-            res = requests.post(url, json=data, headers=headers, timeout=10)
+            res = requests.post(url, json=data, headers=headers, auth=auth, timeout=10)
             res.raise_for_status()
             logger.info(f"OTP email sent to {email} via SendGrid Web API")
         else:

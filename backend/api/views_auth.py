@@ -141,33 +141,47 @@ class RequestEmailVerificationLinkView(APIView):
             expires_at=expires_at,
         )
         verify_link = f"{settings.FRONTEND_URL.rstrip('/')}/verify-email?token={raw_token}"
-        from django.core.mail import get_connection
+        from django.core.mail import get_connection, EmailMultiAlternatives
         from .models import SystemSettings
         import requests
         
         sys_settings = SystemSettings.get_settings()
-        
+        from_email = settings.DEFAULT_FROM_EMAIL or 'noreply@serveflow.ai'
+        subject = 'Verify your ServeFlow email'
+        text_content = f'Click this link to verify your email: {verify_link}'
+        html_content = f'<p>Click <a href="{verify_link}">this link</a> to verify your email.</p>'
+
         is_sendgrid = (
             sys_settings.smtp_user == 'apikey' or 
-            'sendgrid' in sys_settings.smtp_host.lower() or 
-            sys_settings.smtp_password.startswith('SG.')
+            'sendgrid' in sys_settings.smtp_host.lower() or
+            (sys_settings.smtp_password and sys_settings.smtp_password.startswith('SG.')) or
+            (sys_settings.smtp_user and sys_settings.smtp_user.startswith('SK'))
         )
         
         if is_sendgrid and sys_settings.smtp_password:
             url = "https://api.sendgrid.com/v3/mail/send"
-            headers = {
-                "Authorization": f"Bearer {sys_settings.smtp_password}",
-                "Content-Type": "application/json"
-            }
+            
+            if sys_settings.smtp_user.startswith('SK'):
+                from requests.auth import HTTPBasicAuth
+                auth = HTTPBasicAuth(sys_settings.smtp_user, sys_settings.smtp_password)
+                headers = {"Content-Type": "application/json"}
+            else:
+                auth = None
+                headers = {
+                    "Authorization": f"Bearer {sys_settings.smtp_password}",
+                    "Content-Type": "application/json"
+                }
+
             data = {
                 "personalizations": [{"to": [{"email": request.user.email}]}],
-                "from": {"email": settings.DEFAULT_FROM_EMAIL or 'noreply@serveflow.ai'},
-                "subject": 'Verify your ServeFlow email',
+                "from": {"email": from_email},
+                "subject": subject,
                 "content": [
-                    {"type": "text/plain", "value": f'Click this link to verify your email: {verify_link}'}
+                    {"type": "text/plain", "value": text_content},
+                    {"type": "text/html", "value": html_content}
                 ]
             }
-            res = requests.post(url, json=data, headers=headers, timeout=10)
+            res = requests.post(url, json=data, headers=headers, auth=auth, timeout=10)
             res.raise_for_status()
         else:
             connection = None
@@ -182,14 +196,9 @@ class RequestEmailVerificationLinkView(APIView):
                     timeout=5
                 )
 
-            send_mail(
-                'Verify your ServeFlow email',
-                f'Click this link to verify your email: {verify_link}',
-                settings.DEFAULT_FROM_EMAIL or 'noreply@serveflow.ai',
-                [request.user.email],
-                fail_silently=True,
-                connection=connection
-            )
+            msg = EmailMultiAlternatives(subject, text_content, from_email, [request.user.email], connection=connection)
+            msg.attach_alternative(html_content, "text/html")
+            msg.send()
         return Response({'message': 'Verification link sent.'}, status=status.HTTP_200_OK)
 
 
