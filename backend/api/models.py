@@ -514,9 +514,9 @@ class EmailLog(models.Model):
 
 class SystemSettings(models.Model):
     # General
-    platform_name = models.CharField(max_length=100, default='ServeFlow AI')
-    contact_email = models.EmailField(default='support@serveflow.ai')
-    currency_symbol = models.CharField(max_length=10, default='$')
+    platform_name = models.CharField(max_length=100, default='ServeFlow AI', blank=True)
+    contact_email = models.EmailField(default='support@serveflow.ai', blank=True)
+    currency_symbol = models.CharField(max_length=10, default='$', blank=True)
     
     # Financial
     commission_percentage = models.DecimalField(max_digits=5, decimal_places=2, default=10.00)
@@ -524,8 +524,8 @@ class SystemSettings(models.Model):
     min_payout_amount = models.DecimalField(max_digits=10, decimal_places=2, default=50.00)
     
     # SMTP Configuration (Live)
-    smtp_host = models.CharField(max_length=255, default='smtp.gmail.com')
-    smtp_port = models.IntegerField(default=587)
+    smtp_host = models.CharField(max_length=255, default='smtp.gmail.com', blank=True)
+    smtp_port = models.IntegerField(default=587, null=True, blank=True)
     smtp_user = models.CharField(max_length=255, blank=True)
     smtp_password = models.CharField(max_length=255, blank=True)
     smtp_use_tls = models.BooleanField(default=True)
