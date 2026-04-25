@@ -36,7 +36,7 @@ def send_otp_email(self, email, otp):
         text_content = render_to_string('emails/otp_email.txt', context)
         
         from django.core.mail import get_connection
-        from .models import SystemSettings
+        from .models import SystemSettings, EmailLog
         import requests
         
         sys_settings = SystemSettings.get_settings()
@@ -68,10 +68,8 @@ def send_otp_email(self, email, otp):
             logger.info(f"OTP email sent to {email} via SendGrid Web API")
         else:
             # Fallback to standard SMTP for Gmail, etc.
-            connection = None
-            if sys_settings.smtp_user and sys_settings.smtp_password:
+            try:
                 connection = get_connection(
-                    backend='django.core.mail.backends.smtp.EmailBackend',
                     host=sys_settings.smtp_host,
                     port=sys_settings.smtp_port,
                     username=sys_settings.smtp_user,
@@ -80,13 +78,40 @@ def send_otp_email(self, email, otp):
                     timeout=5
                 )
 
-            msg = EmailMultiAlternatives(subject, text_content, from_email, [email], connection=connection)
-            msg.attach_alternative(html_content, "text/html")
-            msg.send()
-            logger.info(f"OTP email sent to {email} via SMTP")
+                msg = EmailMultiAlternatives(subject, text_content, from_email, [email], connection=connection)
+                msg.attach_alternative(html_content, "text/html")
+                msg.send()
+                
+                # Log successful send
+                EmailLog.objects.create(
+                    recipient_email=email,
+                    subject=subject,
+                    content=text_content,
+                    success=True
+                )
+                logger.info(f"OTP email sent to {email} via SMTP")
+                
+            except Exception as smtp_exc:
+                # IMPORTANT: Log to database so admin can see the OTP even if email fails
+                EmailLog.objects.create(
+                    recipient_email=email,
+                    subject=subject,
+                    content=f"FAILED TO SEND EMAIL. OTP was: {otp}\n\nError: {str(smtp_exc)}\n\nOriginal Content:\n{text_content}",
+                    success=False,
+                    error_message=str(smtp_exc)
+                )
+                
+                error_msg = str(smtp_exc)
+                if "101" in error_msg or "unreachable" in error_msg.lower():
+                    logger.error(f"CRITICAL: SMTP Port {sys_settings.smtp_port} is BLOCKED by your hosting provider. Switch to SendGrid API.")
+                
+                logger.error(f"Error sending OTP email to {email}: {error_msg}")
+                # Still retry a few times, but the log now contains the code
+                raise self.retry(exc=smtp_exc)
     except Exception as exc:
-        logger.error(f"Error sending OTP email to {email}: {str(exc)}")
-        raise self.retry(exc=exc)
+        logger.error(f"Global error in send_otp_email: {str(exc)}")
+        if not isinstance(exc, self.retry_backoff): # Don't log retry as global error
+             raise self.retry(exc=exc)
 
 @shared_task(bind=True, max_retries=3)
 def process_service_request(self, request_id):
