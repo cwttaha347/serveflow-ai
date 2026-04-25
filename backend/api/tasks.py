@@ -35,7 +35,22 @@ def send_otp_email(self, email, otp):
         html_content = render_to_string('emails/otp_email.html', context)
         text_content = render_to_string('emails/otp_email.txt', context)
         
-        msg = EmailMultiAlternatives(subject, text_content, from_email, [email])
+        from django.core.mail import get_connection
+        from .models import SystemSettings
+        
+        sys_settings = SystemSettings.get_settings()
+        connection = None
+        if sys_settings.smtp_user and sys_settings.smtp_password:
+            connection = get_connection(
+                backend='django.core.mail.backends.smtp.EmailBackend',
+                host=sys_settings.smtp_host,
+                port=sys_settings.smtp_port,
+                username=sys_settings.smtp_user,
+                password=sys_settings.smtp_password,
+                use_tls=sys_settings.smtp_use_tls
+            )
+
+        msg = EmailMultiAlternatives(subject, text_content, from_email, [email], connection=connection)
         msg.attach_alternative(html_content, "text/html")
         msg.send()
         
