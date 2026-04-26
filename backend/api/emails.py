@@ -1,8 +1,48 @@
-from django.core.mail import send_mail, EmailMultiAlternatives
+from django.core.mail import get_connection, EmailMultiAlternatives
 from django.template.loader import render_to_string
 from django.conf import settings
 from django.utils.html import strip_tags
+import logging
 
+logger = logging.getLogger(__name__)
+
+def get_resilient_connection():
+    """
+    Utility to get a mail connection that respects SystemSettings.
+    """
+    from .models import SystemSettings
+    sys_settings = SystemSettings.get_settings()
+    
+    if not sys_settings.smtp_user:
+        return get_connection()
+    
+    return get_connection(
+        host=sys_settings.smtp_host,
+        port=sys_settings.smtp_port,
+        username=sys_settings.smtp_user,
+        password=sys_settings.smtp_password,
+        use_tls=sys_settings.smtp_use_tls,
+        timeout=10
+    )
+
+def send_resilient_mail(subject, message, recipient_list, html_message=None):
+    """
+    Wrapper around EmailMultiAlternatives using resilient connection.
+    """
+    from .models import SystemSettings
+    sys_settings = SystemSettings.get_settings()
+    from_email = sys_settings.from_email or settings.DEFAULT_FROM_EMAIL
+    
+    try:
+        connection = get_resilient_connection()
+        msg = EmailMultiAlternatives(subject, message, from_email, recipient_list, connection=connection)
+        if html_message:
+            msg.attach_alternative(html_message, "text/html")
+        msg.send()
+        return True
+    except Exception as e:
+        logger.error(f"Resilient email failed: {e}")
+        return False
 
 def send_new_request_notification(request_obj):
     """
@@ -38,19 +78,8 @@ This is an automated notification from ServeFlow AI.
     """
     
     recipients = list(set(admin_emails + provider_emails))  # Remove duplicates
-    
     if recipients:
-        try:
-            send_mail(
-                subject,
-                message,
-                settings.DEFAULT_FROM_EMAIL,
-                recipients,
-                fail_silently=False,
-            )
-            print(f"✅ Email sent to {len(recipients)} recipients for Request #{request_obj.id}")
-        except Exception as e:
-            print(f"❌ Email error: {e}")
+        send_resilient_mail(subject, message, recipients)
 
 
 def send_job_status_notification(job, old_status, new_status):
@@ -87,18 +116,7 @@ Request ID: #{job.request.id}
 ---
 This is an automated notification from ServeFlow AI.
     """
-    
-    try:
-        send_mail(
-            subject,
-            message,
-            settings.DEFAULT_FROM_EMAIL,
-            [customer_email],
-            fail_silently=False,
-        )
-        print(f"✅ Status update email sent to {customer_email}")
-    except Exception as e:
-        print(f"❌ Email error: {e}")
+    send_resilient_mail(subject, message, [customer_email])
 
 
 def send_bid_accepted_notification(bid):
@@ -134,18 +152,7 @@ Request ID: #{bid.request.id}
 ---
 This is an automated notification from ServeFlow AI.
     """
-    
-    try:
-        send_mail(
-            subject,
-            message,
-            settings.DEFAULT_FROM_EMAIL,
-            [provider_email],
-            fail_silently=False,
-        )
-        print(f"✅ Bid acceptance email sent to {provider_email}")
-    except Exception as e:
-        print(f"❌ Email error: {e}")
+    send_resilient_mail(subject, message, [provider_email])
 
 
 def send_new_bid_notification(bid):
@@ -181,18 +188,7 @@ Request ID: #{bid.request.id}
 ---
 This is an automated notification from ServeFlow AI.
     """
-    
-    try:
-        send_mail(
-            subject,
-            message,
-            settings.DEFAULT_FROM_EMAIL,
-            [customer_email],
-            fail_silently=False,
-        )
-        print(f"✅ New bid email sent to {customer_email}")
-    except Exception as e:
-        print(f"❌ Email error: {e}")
+    send_resilient_mail(subject, message, [customer_email])
 
 
 def send_invoice_notification(invoice):
@@ -228,15 +224,4 @@ Job ID: #{invoice.job.id}
 ---
 This is an automated notification from ServeFlow AI.
     """
-    
-    try:
-        send_mail(
-            subject,
-            message,
-            settings.DEFAULT_FROM_EMAIL,
-            [customer_email],
-            fail_silently=False,
-        )
-        print(f"✅ Invoice email sent to {customer_email}")
-    except Exception as e:
-        print(f"❌ Email error: {e}")
+    send_resilient_mail(subject, message, [customer_email])

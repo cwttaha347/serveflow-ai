@@ -35,6 +35,8 @@ from .security import (
     can_user_access_job, can_user_update_job_status, apply_job_status_transition,
     require_verified_email, get_provider_for_user, get_worker_for_user,
 )
+import logging
+logger = logging.getLogger(__name__)
 
 @method_decorator(csrf_exempt, name='dispatch')
 class CustomAuthToken(ObtainAuthToken):
@@ -127,6 +129,30 @@ class UserViewSet(viewsets.ModelViewSet):
             description='User account created',
             request=request,
         )
+
+        # TRIGGER VERIFICATION EMAIL ON SIGNUP
+        if getattr(settings, 'ENABLE_EMAIL_OTP', True):
+            try:
+                from .tasks import send_otp_email
+                # Generate 6-digit OTP for immediate use
+                import secrets
+                otp = str(secrets.randbelow(1_000_000)).zfill(6)
+                from django.contrib.auth.hashers import make_password
+                from .models import EmailOTP
+                from datetime import timedelta
+                
+                expires_at = timezone.now() + timedelta(seconds=getattr(settings, 'OTP_EXPIRY_SECONDS', 600))
+                EmailOTP.objects.create(
+                    user=user,
+                    otp_hash=make_password(otp),
+                    expires_at=expires_at,
+                    ip_address=request.META.get('REMOTE_ADDR')
+                )
+                send_otp_email.delay(user.email, otp)
+                logger.info(f"Auto-sent signup OTP to {user.email}")
+            except Exception as e:
+                logger.error(f"Failed to auto-send signup OTP: {e}")
+
         return Response({
             'id': user.id,
             'username': user.username,
@@ -161,23 +187,22 @@ class UserViewSet(viewsets.ModelViewSet):
         generic_message = {'message': 'If an account exists, a reset link has been sent.'}
         try:
             user = User.objects.get(email=email)
-            from django.core.mail import send_mail
+            from .emails import send_resilient_mail
             raw_token = secrets.token_urlsafe(32)
             token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
             expires_at = timezone.now() + timedelta(hours=1)
             PasswordResetToken.objects.create(user=user, token_hash=token_hash, expires_at=expires_at)
             reset_link = f"{settings.FRONTEND_URL.rstrip('/')}/reset-password?token={raw_token}"
-            send_mail(
-                'Password Reset - ServeFlow AI',
-                f'Click the link to reset your password: {reset_link}',
-                settings.DEFAULT_FROM_EMAIL or 'noreply@serveflow.ai',
-                [email],
-                fail_silently=False,
-            )
+            
+            subject = 'Password Reset - ServeFlow AI'
+            message = f'Click the link to reset your password: {reset_link}'
+            
+            send_resilient_mail(subject, message, [email])
             return Response(generic_message)
         except User.DoesNotExist:
             return Response(generic_message)
         except Exception as e:
+            logger.error(f"Forgot password error: {e}")
             return Response(generic_message)
 
     @action(detail=False, methods=['post'], permission_classes=[AllowAny])
