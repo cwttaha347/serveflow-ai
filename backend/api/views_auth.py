@@ -151,7 +151,7 @@ class RequestEmailVerificationLinkView(APIView):
         import requests
         
         sys_settings = SystemSettings.get_settings()
-        from_email = settings.DEFAULT_FROM_EMAIL or 'noreply@serveflow.ai'
+        final_from_email = sys_settings.from_email or settings.DEFAULT_FROM_EMAIL or 'noreply@serveflow.ai'
         subject = 'Verify your ServeFlow email'
         text_content = f'Click this link to verify your email: {verify_link}'
         html_content = f'<p>Click <a href="{verify_link}">this link</a> to verify your email.</p>'
@@ -179,7 +179,7 @@ class RequestEmailVerificationLinkView(APIView):
 
             data = {
                 "personalizations": [{"to": [{"email": request.user.email}]}],
-                "from": {"email": from_email},
+                "from": {"email": final_from_email},
                 "subject": subject,
                 "content": [
                     {"type": "text/plain", "value": text_content},
@@ -189,8 +189,9 @@ class RequestEmailVerificationLinkView(APIView):
             res = requests.post(url, json=data, headers=headers, auth=auth, timeout=10)
             res.raise_for_status()
         else:
-            connection = None
-            if sys_settings.smtp_user and sys_settings.smtp_password:
+            if not sys_settings.smtp_user:
+                connection = get_connection()
+            else:
                 connection = get_connection(
                     backend='django.core.mail.backends.smtp.EmailBackend',
                     host=sys_settings.smtp_host,
@@ -201,7 +202,7 @@ class RequestEmailVerificationLinkView(APIView):
                     timeout=5
                 )
 
-            msg = EmailMultiAlternatives(subject, text_content, from_email, [request.user.email], connection=connection)
+            msg = EmailMultiAlternatives(subject, text_content, final_from_email, [request.user.email], connection=connection)
             msg.attach_alternative(html_content, "text/html")
             msg.send()
         return Response({'message': 'Verification link sent.'}, status=status.HTTP_200_OK)

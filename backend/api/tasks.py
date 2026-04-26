@@ -39,6 +39,9 @@ def send_otp_email(self, email, otp):
         
         sys_settings = SystemSettings.get_settings()
         
+        # Priority: SystemSettings.from_email -> settings.DEFAULT_FROM_EMAIL
+        final_from_email = sys_settings.from_email or settings.DEFAULT_FROM_EMAIL
+        
         # Check if this is a SendGrid configuration
         is_sendgrid = (
             sys_settings.smtp_user == 'apikey' or 
@@ -52,12 +55,10 @@ def send_otp_email(self, email, otp):
             
             # Handle different auth types
             if sys_settings.smtp_user and sys_settings.smtp_user.startswith('SK'):
-                # Twilio Style Basic Auth (SID:Secret)
                 from requests.auth import HTTPBasicAuth
                 auth = HTTPBasicAuth(sys_settings.smtp_user, sys_settings.smtp_password)
                 headers = {"Content-Type": "application/json"}
             else:
-                # Standard SendGrid API Key (Bearer)
                 auth = None
                 headers = {
                     "Authorization": f"Bearer {sys_settings.smtp_password}",
@@ -66,7 +67,7 @@ def send_otp_email(self, email, otp):
 
             data = {
                 "personalizations": [{"to": [{"email": email}]}],
-                "from": {"email": from_email},
+                "from": {"email": final_from_email},
                 "subject": subject,
                 "content": [
                     {"type": "text/plain", "value": text_content},
@@ -77,17 +78,23 @@ def send_otp_email(self, email, otp):
             res.raise_for_status()
             logger.info(f"OTP email sent to {email} via SendGrid Web API")
         else:
-            # Fallback to standard SMTP
-            connection = get_connection(
-                host=sys_settings.smtp_host,
-                port=sys_settings.smtp_port,
-                username=sys_settings.smtp_user,
-                password=sys_settings.smtp_password,
-                use_tls=sys_settings.smtp_use_tls,
-                timeout=5
-            )
+            # Fallback to SMTP
+            # If no SMTP user is provided in SystemSettings, use the default connection from settings.py
+            if not sys_settings.smtp_user:
+                logger.info("No SMTP user in SystemSettings, using default Django connection.")
+                connection = get_connection()
+            else:
+                logger.info(f"Using custom SMTP: {sys_settings.smtp_host}:{sys_settings.smtp_port}")
+                connection = get_connection(
+                    host=sys_settings.smtp_host,
+                    port=sys_settings.smtp_port,
+                    username=sys_settings.smtp_user,
+                    password=sys_settings.smtp_password,
+                    use_tls=sys_settings.smtp_use_tls,
+                    timeout=5
+                )
 
-            msg = EmailMultiAlternatives(subject, text_content, from_email, [email], connection=connection)
+            msg = EmailMultiAlternatives(subject, text_content, final_from_email, [email], connection=connection)
             msg.attach_alternative(html_content, "text/html")
             msg.send()
             logger.info(f"OTP email sent to {email} via SMTP")

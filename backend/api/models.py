@@ -516,6 +516,7 @@ class SystemSettings(models.Model):
     # General
     platform_name = models.CharField(max_length=100, default='ServeFlow AI', blank=True)
     contact_email = models.EmailField(default='support@serveflow.ai', blank=True)
+    from_email = models.CharField(max_length=255, default='ServeFlow AI <noreply@serveflow.ai>', blank=True)
     currency_symbol = models.CharField(max_length=10, default='$', blank=True)
     
     # Financial
@@ -559,7 +560,77 @@ class SystemSettings(models.Model):
     @classmethod
     def get_settings(cls):
         settings, created = cls.objects.get_or_create(id=1)
+        # Always attempt to sync from env to ensure secrets are populated
+        settings.sync_from_env(force=os.environ.get("SYNC_SETTINGS_FROM_ENV_FORCE", "False").lower() == "true")
         return settings
+
+    def sync_from_env(self, force: bool = False):
+        """
+        Synchronizes system settings from environment variables.
+        If force=False, it only populates fields that are currently blank or set to their default values.
+        """
+        mapping = {
+            # ENV_VAR_NAME: (field_name, type_converter)
+            'PLATFORM_NAME': ('platform_name', str),
+            'CONTACT_EMAIL': ('contact_email', str),
+            'DEFAULT_FROM_EMAIL': ('from_email', str),
+            'CURRENCY_SYMBOL': ('currency_symbol', str),
+            'COMMISSION_PERCENTAGE': ('commission_percentage', float),
+            'TAX_PERCENTAGE': ('tax_percentage', float),
+            'MIN_PAYOUT_AMOUNT': ('min_payout_amount', float),
+            'SMTP_HOST': ('smtp_host', str),
+            'SMTP_PORT': ('smtp_port', int),
+            'SMTP_USER': ('smtp_user', str),
+            'SMTP_PASSWORD': ('smtp_password', str),
+            'SMTP_USE_TLS': ('smtp_use_tls', lambda x: x.lower() == 'true'),
+            'MAINTENANCE_MODE': ('maintenance_mode', lambda x: x.lower() == 'true'),
+            'ENABLE_AI_ANALYSIS': ('enable_ai_analysis', lambda x: x.lower() == 'true'),
+            'ENABLE_BIDDING_SYSTEM': ('enable_bidding_system', lambda x: x.lower() == 'true'),
+            'REQUIRE_PROVIDER_VERIFICATION': ('require_provider_verification', lambda x: x.lower() == 'true'),
+            'MULTI_ISSUE_SPLIT_ENABLED': ('multi_issue_split_enabled', lambda x: x.lower() == 'true'),
+            'STRIPE_PUBLIC_KEY': ('stripe_public_key', str),
+            'STRIPE_SECRET_KEY': ('stripe_secret_key', str),
+            'STRIPE_WEBHOOK_SECRET': ('stripe_webhook_secret', str),
+            'STRIPE_MODE': ('stripe_mode', str),
+        }
+
+        changed = False
+        update_fields = []
+
+        for env_key, (field_name, converter) in mapping.items():
+            env_val = os.environ.get(env_key)
+            if env_val is not None:
+                current_val = getattr(self, field_name)
+                field = self._meta.get_field(field_name)
+                default_val = field.default
+                
+                # Update if forced, or if current value is the default/empty
+                is_empty_or_default = (current_val == default_val) or (current_val in [None, '', 0, 0.0])
+                
+                if force or is_empty_or_default:
+                    try:
+                        new_val = converter(env_val)
+                        if new_val != current_val:
+                            setattr(self, field_name, new_val)
+                            changed = True
+                            update_fields.append(field_name)
+                    except (ValueError, TypeError):
+                        pass
+
+        # Also sync Gemini keys
+        for i in range(1, 6):
+            env_key = f"GEMINI_API_KEY_{i}"
+            env_val = os.environ.get(env_key)
+            if env_val:
+                field_name = f"gemini_api_key_{i}"
+                if force or not (getattr(self, field_name) or "").strip():
+                    setattr(self, field_name, env_val.strip())
+                    changed = True
+                    update_fields.append(field_name)
+
+        if changed:
+            self.save(update_fields=update_fields)
+        return changed
 
     def get_gemini_api_keys(self, *, prefer_env: bool = True, sync_env_to_db: bool = True):
         """
