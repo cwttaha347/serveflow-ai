@@ -570,35 +570,42 @@ class SystemSettings(models.Model):
         If force=False, it only populates fields that are currently blank or set to their default values.
         """
         mapping = {
-            # ENV_VAR_NAME: (field_name, type_converter)
-            'PLATFORM_NAME': ('platform_name', str),
-            'CONTACT_EMAIL': ('contact_email', str),
-            'DEFAULT_FROM_EMAIL': ('from_email', str),
-            'CURRENCY_SYMBOL': ('currency_symbol', str),
-            'COMMISSION_PERCENTAGE': ('commission_percentage', float),
-            'TAX_PERCENTAGE': ('tax_percentage', float),
-            'MIN_PAYOUT_AMOUNT': ('min_payout_amount', float),
-            'SMTP_HOST': ('smtp_host', str),
-            'SMTP_PORT': ('smtp_port', int),
-            'SMTP_USER': ('smtp_user', str),
-            'SMTP_PASSWORD': ('smtp_password', str),
-            'SMTP_USE_TLS': ('smtp_use_tls', lambda x: x.lower() == 'true'),
-            'MAINTENANCE_MODE': ('maintenance_mode', lambda x: x.lower() == 'true'),
-            'ENABLE_AI_ANALYSIS': ('enable_ai_analysis', lambda x: x.lower() == 'true'),
-            'ENABLE_BIDDING_SYSTEM': ('enable_bidding_system', lambda x: x.lower() == 'true'),
-            'REQUIRE_PROVIDER_VERIFICATION': ('require_provider_verification', lambda x: x.lower() == 'true'),
-            'MULTI_ISSUE_SPLIT_ENABLED': ('multi_issue_split_enabled', lambda x: x.lower() == 'true'),
-            'STRIPE_PUBLIC_KEY': ('stripe_public_key', str),
-            'STRIPE_SECRET_KEY': ('stripe_secret_key', str),
-            'STRIPE_WEBHOOK_SECRET': ('stripe_webhook_secret', str),
-            'STRIPE_MODE': ('stripe_mode', str),
+            # ENV_VAR_NAME: (field_name, type_converter, alternate_env_keys)
+            'PLATFORM_NAME': ('platform_name', str, []),
+            'CONTACT_EMAIL': ('contact_email', str, []),
+            'DEFAULT_FROM_EMAIL': ('from_email', str, ['FROM_EMAIL']),
+            'CURRENCY_SYMBOL': ('currency_symbol', str, []),
+            'COMMISSION_PERCENTAGE': ('commission_percentage', float, []),
+            'TAX_PERCENTAGE': ('tax_percentage', float, []),
+            'MIN_PAYOUT_AMOUNT': ('min_payout_amount', float, []),
+            'SMTP_HOST': ('smtp_host', str, ['EMAIL_HOST']),
+            'SMTP_PORT': ('smtp_port', int, ['EMAIL_PORT']),
+            'SMTP_USER': ('smtp_user', str, ['EMAIL_HOST_USER', 'SENDGRID_API_KEY']),
+            'SMTP_PASSWORD': ('smtp_password', str, ['EMAIL_HOST_PASSWORD', 'SENDGRID_API_KEY']),
+            'SMTP_USE_TLS': ('smtp_use_tls', lambda x: str(x).lower() == 'true', ['EMAIL_USE_TLS']),
+            'MAINTENANCE_MODE': ('maintenance_mode', lambda x: str(x).lower() == 'true', []),
+            'ENABLE_AI_ANALYSIS': ('enable_ai_analysis', lambda x: str(x).lower() == 'true', []),
+            'ENABLE_BIDDING_SYSTEM': ('enable_bidding_system', lambda x: str(x).lower() == 'true', []),
+            'REQUIRE_PROVIDER_VERIFICATION': ('require_provider_verification', lambda x: str(x).lower() == 'true', []),
+            'MULTI_ISSUE_SPLIT_ENABLED': ('multi_issue_split_enabled', lambda x: str(x).lower() == 'true', []),
+            'STRIPE_PUBLIC_KEY': ('stripe_public_key', str, []),
+            'STRIPE_SECRET_KEY': ('stripe_secret_key', str, []),
+            'STRIPE_WEBHOOK_SECRET': ('stripe_webhook_secret', str, []),
+            'STRIPE_MODE': ('stripe_mode', str, []),
         }
 
         changed = False
         update_fields = []
 
-        for env_key, (field_name, converter) in mapping.items():
-            env_val = os.environ.get(env_key)
+        for primary_key, (field_name, converter, alternates) in mapping.items():
+            # Check primary key, then alternates
+            env_val = os.environ.get(primary_key)
+            if env_val is None:
+                for alt_key in alternates:
+                    env_val = os.environ.get(alt_key)
+                    if env_val is not None:
+                        break
+            
             if env_val is not None:
                 current_val = getattr(self, field_name)
                 field = self._meta.get_field(field_name)
