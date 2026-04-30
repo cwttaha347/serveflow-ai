@@ -51,6 +51,24 @@ const Login = () => {
         setError('');
     };
 
+    const parseError = (err) => {
+        if (!err.response?.data) return 'An unexpected error occurred. Please try again.';
+        const data = err.response.data;
+        
+        if (typeof data === 'string') return data;
+        if (data.error) return data.error;
+        if (data.detail) return data.detail;
+        
+        // Handle DRF validation errors (objects/arrays)
+        return Object.entries(data)
+            .map(([field, msgs]) => {
+                const fieldName = field.charAt(0).toUpperCase() + field.slice(1).replace('_', ' ');
+                const message = Array.isArray(msgs) ? msgs[0] : msgs;
+                return `${fieldName}: ${message}`;
+            })
+            .join(' | ');
+    };
+
     const handleLoginSubmit = async (e) => {
         e.preventDefault();
         setLoading(true);
@@ -58,7 +76,7 @@ const Login = () => {
         try {
             await login(loginData.username, loginData.password);
         } catch (err) {
-            setError(err.response?.data?.error || 'Invalid credentials');
+            setError(parseError(err));
         } finally {
             setLoading(false);
         }
@@ -97,12 +115,8 @@ const Login = () => {
             localStorage.setItem('verificationEmail', registerData.email);
             success('Account created! Verify your email first.');
             navigate('/verify-otp', { state: { email: registerData.email } });
-
-            // Skip auto-login until verification is complete.
         } catch (err) {
-            console.error(err);
-            const msg = err.response?.data ? JSON.stringify(err.response.data) : 'Registration failed';
-            setError(msg.replace(/[{"}]/g, '').replace(/,/g, ', '));
+            setError(parseError(err));
         } finally {
             setLoading(false);
         }

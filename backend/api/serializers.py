@@ -104,6 +104,16 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         model = User
         fields = ['username', 'email', 'password', 'first_name', 'last_name', 'role', 'phone', 'category_ids']
 
+    def validate_username(self, value):
+        if User.objects.filter(username=value).exists():
+            raise serializers.ValidationError("This username is already taken. Please choose another.")
+        return value
+
+    def validate_email(self, value):
+        if User.objects.filter(email=value).exists():
+            raise serializers.ValidationError("An account with this email already exists. Try logging in.")
+        return value
+
     def validate(self, attrs):
         role = attrs.get('role') or 'user'
         if role not in ['user', 'provider']:

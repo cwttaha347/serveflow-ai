@@ -78,7 +78,10 @@ const AdminSettings = () => {
             });
         } catch (error) {
             console.error('Error fetching settings:', error);
-            showError('Failed to load settings');
+            const errorMsg = error.response?.data 
+                ? (typeof error.response.data === 'object' ? JSON.stringify(error.response.data) : error.response.data)
+                : 'Failed to load settings';
+            showError(`Configuration Sync Failed: ${errorMsg}`);
         } finally {
             setLoading(false);
         }

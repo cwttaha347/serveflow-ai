@@ -4,9 +4,11 @@ from rest_framework.response import Response
 from .models import SystemSettings
 from .serializers_settings import SystemSettingsSerializer
 
+from .permissions import IsAdminRole
+
 class SystemSettingsViewSet(viewsets.GenericViewSet):
     # Only Admin can manage settings
-    permission_classes = [permissions.IsAdminUser]
+    permission_classes = [IsAdminRole]
     serializer_class = SystemSettingsSerializer
 
     def get_queryset(self):
