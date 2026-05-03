@@ -28,6 +28,7 @@ class RequestOTPView(APIView):
         if not email:
             return Response({'error': 'Email is required'}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Same response for missing email (no user enumeration). OTP is only sent for existing users.
         generic = {'message': 'If an account exists, an OTP has been sent.'}
         try:
             user = User.objects.get(email=email)

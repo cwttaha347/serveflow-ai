@@ -11,7 +11,9 @@ from django.db.models import Avg
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, permissions
-import google.generativeai as genai
+from google import genai
+from google.genai import types
+from .gemini_client import resolve_gemini_model_name
 from .models import (
     ServiceRequest, RequestImage, Category, Provider, RateCard,
     Job, Bid, Request, SystemSettings
@@ -23,43 +25,6 @@ from .audit import log_audit, AuditLog
 from .security import require_verified_email
 
 MIN_PROVIDER_MARGIN_PCT = Decimal("0.20")
-
-_CACHED_GEMINI_MODEL_NAME = None
-
-def _pick_gemini_model_name():
-    global _CACHED_GEMINI_MODEL_NAME
-    if _CACHED_GEMINI_MODEL_NAME:
-        return _CACHED_GEMINI_MODEL_NAME
-
-    preferred = [
-        "gemini-3.0-flash",
-        "gemini-3-flash"
-    ]
-    try:
-        models = list(genai.list_models())
-        name_set = {getattr(m, "name", "") for m in models}
-        def supports_generate(m):
-            methods = getattr(m, "supported_generation_methods", []) or []
-            return "generateContent" in methods
-
-        for n in preferred:
-            full = f"models/{n}"
-            if full in name_set:
-                mobj = next((m for m in models if getattr(m, "name", "") == full), None)
-                if mobj and supports_generate(mobj):
-                    _CACHED_GEMINI_MODEL_NAME = n
-                    return n
-        for m in models:
-            if supports_generate(m):
-                raw = getattr(m, "name", "")
-                if raw.startswith("models/"):
-                    _CACHED_GEMINI_MODEL_NAME = raw.split("models/", 1)[1]
-                    return _CACHED_GEMINI_MODEL_NAME
-    except Exception:
-        pass
-
-    _CACHED_GEMINI_MODEL_NAME = "gemini-1.5-pro"
-    return _CACHED_GEMINI_MODEL_NAME
 
 
 def _to_decimal(value, default="0"):
@@ -821,11 +786,12 @@ Rules:
         last_error = None
         for key in valid_keys:
             try:
-                genai.configure(api_key=key)
-                model = genai.GenerativeModel(_pick_gemini_model_name())
-                response = model.generate_content(
-                    prompt,
-                    generation_config={"response_mime_type": "application/json"},
+                client = genai.Client(api_key=key)
+                model_name = resolve_gemini_model_name(key)
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(response_mime_type="application/json"),
                 )
                 text = (response.text or "").strip()
                 if text.startswith("```json"):

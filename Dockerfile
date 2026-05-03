@@ -51,4 +51,4 @@ ENV HOME=/home/user \
 EXPOSE 7860
 
 # We use daphne to support both HTTP and WebSockets for your chat feature
-CMD ["sh", "-c", "python manage.py migrate --noinput && python manage.py loaddata initial_data.txt && python manage.py seed_serveflow_v2 && python manage.py collectstatic --noinput && daphne -b 0.0.0.0 -p 7860 serveflow.asgi:application"]
+CMD ["sh", "-c", "python manage.py migrate --noinput && python manage.py seed_serveflow_v2 && python manage.py collectstatic --noinput && daphne -b 0.0.0.0 -p 7860 serveflow.asgi:application"]

@@ -560,8 +560,11 @@ class SystemSettings(models.Model):
     @classmethod
     def get_settings(cls):
         settings, created = cls.objects.get_or_create(id=1)
-        # Always attempt to sync from env to ensure secrets are populated
-        settings.sync_from_env(force=os.environ.get("SYNC_SETTINGS_FROM_ENV_FORCE", "False").lower() == "true")
+        force_env = (
+            os.environ.get("SYNC_SETTINGS_FROM_ENV_FORCE", "False").lower() == "true"
+            or os.environ.get("HF_SYNC_SETTINGS_FROM_ENV", "False").lower() == "true"
+        )
+        settings.sync_from_env(force=force_env)
         return settings
 
     def sync_from_env(self, force: bool = False):
@@ -580,7 +583,8 @@ class SystemSettings(models.Model):
             'MIN_PAYOUT_AMOUNT': ('min_payout_amount', float, []),
             'SMTP_HOST': ('smtp_host', str, ['EMAIL_HOST']),
             'SMTP_PORT': ('smtp_port', int, ['EMAIL_PORT']),
-            'SMTP_USER': ('smtp_user', str, ['EMAIL_HOST_USER', 'SENDGRID_API_KEY']),
+            # Do not map SENDGRID_API_KEY to smtp_user (use apikey + SG.* password; see below).
+            'SMTP_USER': ('smtp_user', str, ['EMAIL_HOST_USER']),
             'SMTP_PASSWORD': ('smtp_password', str, ['EMAIL_HOST_PASSWORD', 'SENDGRID_API_KEY']),
             'SMTP_USE_TLS': ('smtp_use_tls', lambda x: str(x).lower() == 'true', ['EMAIL_USE_TLS']),
             'MAINTENANCE_MODE': ('maintenance_mode', lambda x: str(x).lower() == 'true', []),
@@ -635,8 +639,24 @@ class SystemSettings(models.Model):
                     changed = True
                     update_fields.append(field_name)
 
+        # SendGrid: SG.* API keys belong in smtp_password with smtp_user=apikey (not as username).
+        sendgrid_key = (os.environ.get("SENDGRID_API_KEY") or "").strip()
+        sendgrid_host = (
+            os.environ.get("SMTP_HOST") or os.environ.get("EMAIL_HOST") or self.smtp_host or ""
+        ).lower()
+        if sendgrid_key.startswith("SG.") and "sendgrid" in sendgrid_host:
+            user_val = (self.smtp_user or "").strip()
+            if force or not user_val or user_val == sendgrid_key:
+                self.smtp_user = "apikey"
+                changed = True
+                update_fields.append("smtp_user")
+            if force or not (self.smtp_password or "").strip():
+                self.smtp_password = sendgrid_key
+                changed = True
+                update_fields.append("smtp_password")
+
         if changed:
-            self.save(update_fields=update_fields)
+            self.save(update_fields=list(dict.fromkeys(update_fields)))
         return changed
 
     def get_gemini_api_keys(self, *, prefer_env: bool = True, sync_env_to_db: bool = True):

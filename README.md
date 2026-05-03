@@ -238,6 +238,13 @@ CORS_ALLOWED_ORIGINS=http://localhost:5173
 
 # Google Gemini (Optional - if using external AI service)
 GEMINI_API_KEY=your-gemini-api-key
+# Or numbered rotation (see SystemSettings.get_gemini_api_keys)
+# GEMINI_API_KEY_1=...
+# GEMINI_API_KEY_2=...
+
+# Merge env into SystemSettings (overwrites blank fields; use force flags below to overwrite stale DB)
+# SYNC_SETTINGS_FROM_ENV_FORCE=true
+# HF_SYNC_SETTINGS_FROM_ENV=true
 ```
 
 ## 🧪 Testing
@@ -312,6 +319,30 @@ After running the seed command, you'll have:
 - Set up media file storage (AWS S3/similar)
 - Enable database connection pooling
 - Configure logging
+
+### Hugging Face Spaces (Docker)
+
+The root [`Dockerfile`](Dockerfile) runs migrations, `seed_serveflow_v2`, and Daphne on port 7860. Pushing code **does not copy your local database**; without a persistent database, SQLite data is lost on each fresh deploy.
+
+**Persist data and avoid re-entering admin configuration**
+
+1. Add a **PostgreSQL** instance (e.g. Neon, Supabase, or another host) and set the Space secret **`DATABASE_URL`** to your connection string (same as in [`DEPLOYMENT.md`](DEPLOYMENT.md)). Migrations then run against Postgres and survive code pushes.
+2. Store secrets as **Space variables** (Repository secrets). They are read on startup via [`SystemSettings.sync_from_env`](backend/api/models.py). Useful names:
+   - **`DATABASE_URL`** — persistent Postgres (recommended).
+   - **`SECRET_KEY`**, **`DEBUG`**, **`ALLOWED_HOSTS`**
+   - **`SMTP_HOST`** — e.g. `smtp.sendgrid.net` for SendGrid
+   - **`SMTP_PORT`** — e.g. `587`
+   - **`SENDGRID_API_KEY`** — `SG....` (mapped to `smtp_password`; with a SendGrid host, `smtp_user` is set to `apikey`)
+   - **`DEFAULT_FROM_EMAIL`** or **`FROM_EMAIL`** — must be a **verified** sender in SendGrid
+   - **`GEMINI_API_KEY_1`** … **`GEMINI_API_KEY_5`** or **`GEMINI_API_KEYS`** (comma-separated)
+   - **`STRIPE_*`** keys if using billing
+3. If old rows in `SystemSettings` block new secrets, set **`SYNC_SETTINGS_FROM_ENV_FORCE=true`** or **`HF_SYNC_SETTINGS_FROM_ENV=true`** once so the DB is overwritten from env (then remove or set to false if you prefer admin-only edits).
+
+**OTP email not arriving**
+
+- OTP is sent only for **existing** users (same generic message if the email is unknown).
+- With Celery eager mode, sending runs in-process; check **`EmailLog`** in Django admin for errors (e.g. SendGrid 401, unverified sender).
+- Prefer **`smtp_user=apikey`** + **`SENDGRID_API_KEY=SG....`** + **`SMTP_HOST=smtp.sendgrid.net`** (see sync logic above).
 
 ### Recommended Hosting
 - **Backend**: Koyeb (Free Tier), Railway, Fly.io

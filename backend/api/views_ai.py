@@ -10,19 +10,18 @@ import uuid
 import json
 import re
 import difflib
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
 from PIL import Image
 from PIL import ImageOps
-import os
+from .gemini_client import resolve_gemini_model_name
 try:
     from pillow_heif import register_heif_opener
     register_heif_opener()
 except ImportError:
     print("Warning: pillow-heif not installed. HEIC support will be limited.")
-
-_CACHED_GEMINI_MODEL_NAME = None
 
 class AIImageAnalysisView(APIView):
     """
@@ -30,55 +29,6 @@ class AIImageAnalysisView(APIView):
     INTEGRATED WITH GOOGLE GEMINI (MULTI-KEY ROTATION).
     """
     parser_classes = (MultiPartParser, FormParser)
-
-    def _pick_gemini_model_name(self):
-        """
-        Gemini model names vary by API/key availability. Avoid hardcoding a single model.
-        Cache the first working model per process.
-        """
-        global _CACHED_GEMINI_MODEL_NAME
-        # Allow an explicit override (useful when you want to force Gemini 3).
-        # This MUST take precedence over any cached value.
-        forced = (os.environ.get("GEMINI_MODEL_NAME") or "").strip()
-        if forced:
-            _CACHED_GEMINI_MODEL_NAME = forced
-            return forced
-
-        if _CACHED_GEMINI_MODEL_NAME:
-            return _CACHED_GEMINI_MODEL_NAME
-
-        preferred = [
-            "gemini-3.0-flash",
-            "gemini-3-flash"
-        ]
-        try:
-            models = list(genai.list_models())
-            name_set = {getattr(m, "name", "") for m in models}
-            def supports_generate(m):
-                methods = getattr(m, "supported_generation_methods", []) or []
-                return "generateContent" in methods
-
-            # Prefer known good names if present and supported.
-            for n in preferred:
-                full = f"models/{n}"
-                if full in name_set:
-                    mobj = next((m for m in models if getattr(m, "name", "") == full), None)
-                    if mobj and supports_generate(mobj):
-                        _CACHED_GEMINI_MODEL_NAME = n
-                        return n
-
-            # Otherwise choose the first model supporting generateContent.
-            for m in models:
-                if supports_generate(m):
-                    raw = getattr(m, "name", "")
-                    if raw.startswith("models/"):
-                        _CACHED_GEMINI_MODEL_NAME = raw.split("models/", 1)[1]
-                        return _CACHED_GEMINI_MODEL_NAME
-        except Exception:
-            pass
-
-        _CACHED_GEMINI_MODEL_NAME = "gemini-1.5-pro"
-        return _CACHED_GEMINI_MODEL_NAME
 
     def _downscale_for_ai(self, src_path: str) -> str:
         """
@@ -218,19 +168,17 @@ class AIImageAnalysisView(APIView):
             for idx, key in enumerate(valid_keys, start=1):
                 try:
                     print(f"Attempting Gemini analysis with key #{idx}")
-                    genai.configure(api_key=key)
-                    model_name = self._pick_gemini_model_name()
+                    client = genai.Client(api_key=key)
+                    model_name = resolve_gemini_model_name(key)
                     print(f"Using Gemini model: {model_name}")
-                    model = genai.GenerativeModel(model_name)
-                    
-                    response = model.generate_content(
-                        [prompt, pil_image],
-                        generation_config={
-                            "response_mime_type": "application/json",
-                            # Lower randomness reduces category hallucination.
-                            "temperature": 0.1,
-                            "top_p": 0.9,
-                        }
+                    response = client.models.generate_content(
+                        model=model_name,
+                        contents=[prompt, pil_image],
+                        config=types.GenerateContentConfig(
+                            response_mime_type="application/json",
+                            temperature=0.1,
+                            top_p=0.9,
+                        ),
                     )
                     response_text = (response.text or "").strip()
                     if response_text.startswith("```json"):

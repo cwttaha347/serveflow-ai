@@ -1,12 +1,14 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from PIL import Image
 import io
 import os
 from workflow.verification_graph import verification_workflow
 import tempfile
+from gemini_client import resolve_gemini_model_name
 
 # Initialize FastAPI
 app = FastAPI(title="AI Service for ServeFlow")
@@ -20,49 +22,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Configure Gemini API
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
-
-_CACHED_GEMINI_MODEL_NAME = None
-
-def _pick_gemini_model_name() -> str:
-    global _CACHED_GEMINI_MODEL_NAME
-    if _CACHED_GEMINI_MODEL_NAME:
-        return _CACHED_GEMINI_MODEL_NAME
-
-    preferred = [
-        "gemini-3.0-flash",
-        "gemini-3-flash"
-        
-    ]
-    try:
-        models = list(genai.list_models())
-        name_set = {getattr(m, "name", "") for m in models}
-        def supports_generate(m):
-            methods = getattr(m, "supported_generation_methods", []) or []
-            return "generateContent" in methods
-
-        for n in preferred:
-            full = f"models/{n}"
-            if full in name_set:
-                mobj = next((m for m in models if getattr(m, "name", "") == full), None)
-                if mobj and supports_generate(mobj):
-                    _CACHED_GEMINI_MODEL_NAME = n
-                    return n
-
-        for m in models:
-            if supports_generate(m):
-                raw = getattr(m, "name", "")
-                if raw.startswith("models/"):
-                    _CACHED_GEMINI_MODEL_NAME = raw.split("models/", 1)[1]
-                    return _CACHED_GEMINI_MODEL_NAME
-    except Exception:
-        pass
-
-    _CACHED_GEMINI_MODEL_NAME = "gemini-1.5-pro"
-    return _CACHED_GEMINI_MODEL_NAME
 
 # Models
 class RequestAnalysisInput(BaseModel):
@@ -111,8 +71,8 @@ async def analyze_request(input_data: RequestAnalysisInput):
         }
     
     try:
-        model = genai.GenerativeModel(_pick_gemini_model_name())
-        
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        model_name = resolve_gemini_model_name(GEMINI_API_KEY)
         prompt = f"""
         Analyze this service request and provide a structured analysis:
         
@@ -129,8 +89,7 @@ async def analyze_request(input_data: RequestAnalysisInput):
         
         Format as JSON with keys: summary, urgency, complexity, key_points, estimated_duration
         """
-        
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(model=model_name, contents=prompt)
         
         # Parse response (simplified - in production use structured output)
         return {
@@ -165,16 +124,17 @@ async def analyze_image(file: UploadFile = File(...)):
         image_data = await file.read()
         image = Image.open(io.BytesIO(image_data))
         
-        # Use Gemini Vision
-        model = genai.GenerativeModel(_pick_gemini_model_name())
-        
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        model_name = resolve_gemini_model_name(GEMINI_API_KEY)
         prompt = """
         Analyze this image in the context of a service request.
         Describe what you see, identify any issues or problems visible,
         and suggest what type of service might be needed.
         """
-        
-        response = model.generate_content([prompt, image])
+        response = client.models.generate_content(
+            model=model_name,
+            contents=[prompt, image],
+        )
         
         return {
             "description": response.text,
@@ -202,8 +162,8 @@ async def summarize_dispute(input_data: DisputeInput):
         }
     
     try:
-        model = genai.GenerativeModel(_pick_gemini_model_name())
-        
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        model_name = resolve_gemini_model_name(GEMINI_API_KEY)
         prompt = f"""
         Analyze this service dispute and provide recommendations:
         
@@ -218,8 +178,7 @@ async def summarize_dispute(input_data: DisputeInput):
         
         Format as JSON with keys: summary, severity, recommended_action, key_issues
         """
-        
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(model=model_name, contents=prompt)
         
         return {
             "summary": f"Dispute analysis completed",
@@ -248,8 +207,8 @@ async def autocomplete_skill(input_data: AutocompleteInput):
         }
 
     try:
-        model = genai.GenerativeModel(_pick_gemini_model_name())
-        
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        model_name = resolve_gemini_model_name(GEMINI_API_KEY)
         prompt = f"""You are ServeFlow's professional profile writer for skilled tradespeople.
 A provider has typed the following partial skill description:
 "{input_data.user_input}"
@@ -262,8 +221,11 @@ Return ONLY valid JSON. No markdown. No explanations.
   "suggested_title": "Professional 4-6 word job title for this skill",
   "experience_level_hint": "Entry | Intermediate | Expert"
 }}"""
-        
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(
+            model=model_name,
+            contents=prompt,
+            config=types.GenerateContentConfig(response_mime_type="application/json"),
+        )
         text = response.text
         
         # Basic JSON cleanup
@@ -300,7 +262,8 @@ async def provider_skill_suggestions(input_data: ProviderSkillSuggestionInput):
         return {"categories": categories, "skills": deduped[:20], "source": "fallback"}
 
     try:
-        model = genai.GenerativeModel(_pick_gemini_model_name())
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        model_name = resolve_gemini_model_name(GEMINI_API_KEY)
         prompt = f"""You generate practical skill tags for service providers.
 Given categories: {", ".join(categories)}
 Return ONLY valid JSON:
@@ -312,7 +275,11 @@ Rules:
 - No duplicates.
 - No generic words like "professional" alone.
 - Keep each skill 2-4 words max."""
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(
+            model=model_name,
+            contents=prompt,
+            config=types.GenerateContentConfig(response_mime_type="application/json"),
+        )
         text = response.text
         if "```json" in text:
             text = text.split("```json")[1].split("```")[0].strip()
@@ -354,7 +321,8 @@ async def chatbot_intent(input_data: ChatbotIntentInput):
         }
 
     try:
-        model = genai.GenerativeModel(_pick_gemini_model_name())
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        model_name = resolve_gemini_model_name(GEMINI_API_KEY)
         prompt = f"""You are ServeFlow's autonomous request chatbot engine.
 Analyze the latest user message and return ONLY valid JSON:
 {{
@@ -377,7 +345,11 @@ Rules:
 - Keep options contextual and minimal (2-5).
 - If enough info is present to proceed, include a "prepare_draft" option.
 """
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(
+            model=model_name,
+            contents=prompt,
+            config=types.GenerateContentConfig(response_mime_type="application/json"),
+        )
         output = response.text
         if "```json" in output:
             output = output.split("```json")[1].split("```")[0].strip()
@@ -476,8 +448,8 @@ async def analyze_request_full(
         }
 
     try:
-        model = genai.GenerativeModel(_pick_gemini_model_name())
-        
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        model_name = resolve_gemini_model_name(GEMINI_API_KEY)
         prompt = f"""You are ServeFlow's Chief Dispatcher. 
 Analyze the following customer problem description and provide a technical dispatch report.
 Description: "{description}"
@@ -491,8 +463,11 @@ Return ONLY valid JSON.
   "estimated_duration_hours": float,
   "severity_score": int 1-10 (1 is minor cosmetic, 10 is catastrophic)
 }}"""
-        
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(
+            model=model_name,
+            contents=prompt,
+            config=types.GenerateContentConfig(response_mime_type="application/json"),
+        )
         text = response.text
         if "```json" in text: text = text.split("```json")[1].split("```")[0].strip()
         elif "```" in text: text = text.split("```")[1].split("```")[0].strip()

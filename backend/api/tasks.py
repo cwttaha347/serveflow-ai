@@ -14,6 +14,11 @@ logger = logging.getLogger(__name__)
 def send_otp_email(self, email, otp):
     """
     Send 6-digit OTP email to user using professional HTML/Plain-text template.
+
+    Hugging Face / production: set Space secrets, e.g. SMTP_HOST=smtp.sendgrid.net,
+    SENDGRID_API_KEY=REDACTED_SENDGRID_KEY (sync maps to smtp_user=apikey + password), DEFAULT_FROM_EMAIL
+    (verified sender). Use SYNC_SETTINGS_FROM_ENV_FORCE=true or HF_SYNC_SETTINGS_FROM_ENV=true
+    once so env overwrites stale DB values. Check api_emailog in admin if delivery fails.
     """
     # Check if OTP is globally enabled
     if not getattr(settings, 'ENABLE_EMAIL_OTP', False):
@@ -42,12 +47,18 @@ def send_otp_email(self, email, otp):
         # Priority: SystemSettings.from_email -> settings.DEFAULT_FROM_EMAIL
         final_from_email = sys_settings.from_email or settings.DEFAULT_FROM_EMAIL
         
-        # Check if this is a SendGrid configuration
+        # SendGrid Web API (Bearer) or SMTP: apikey + SG.* ; legacy Twilio/SK basic auth
         is_sendgrid = (
-            sys_settings.smtp_user == 'apikey' or 
-            'sendgrid' in sys_settings.smtp_host.lower() or
-            (sys_settings.smtp_password and sys_settings.smtp_password.startswith('SG.')) or
-            (sys_settings.smtp_user and sys_settings.smtp_user.startswith('SK'))
+            sys_settings.smtp_user == "apikey"
+            or "sendgrid" in (sys_settings.smtp_host or "").lower()
+            or (
+                sys_settings.smtp_password
+                and str(sys_settings.smtp_password).startswith("SG.")
+            )
+            or (
+                sys_settings.smtp_user
+                and str(sys_settings.smtp_user).startswith("SK")
+            )
         )
         
         if is_sendgrid:
