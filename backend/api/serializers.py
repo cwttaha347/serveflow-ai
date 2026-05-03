@@ -91,6 +91,19 @@ class UserSerializer(serializers.ModelSerializer):
             
         return instance
 
+
+def _unverified_user_for_email(email_raw):
+    if not email_raw:
+        return None
+    e = str(email_raw).strip()
+    if not e:
+        return None
+    user = User.objects.filter(email__iexact=e).first()
+    if user and not user.is_email_verified:
+        return user
+    return None
+
+
 class UserRegistrationSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, min_length=8)
     category_ids = serializers.ListField(
@@ -105,14 +118,23 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         fields = ['username', 'email', 'password', 'first_name', 'last_name', 'role', 'phone', 'category_ids']
 
     def validate_username(self, value):
-        if User.objects.filter(username=value).exists():
+        qs = User.objects.filter(username=value)
+        existing = _unverified_user_for_email(self.initial_data.get('email'))
+        if existing:
+            qs = qs.exclude(pk=existing.pk)
+        if qs.exists():
             raise serializers.ValidationError("This username is already taken. Please choose another.")
         return value
 
     def validate_email(self, value):
-        if User.objects.filter(email=value).exists():
-            raise serializers.ValidationError("An account with this email already exists. Try logging in.")
-        return value
+        e = (value or '').strip()
+        if not e:
+            raise serializers.ValidationError("Valid email is required.")
+        if User.objects.filter(email__iexact=e, is_email_verified=True).exists():
+            raise serializers.ValidationError(
+                "This email is already registered. Try logging in or use a different email."
+            )
+        return e
 
     def validate(self, attrs):
         role = attrs.get('role') or 'user'
@@ -125,6 +147,27 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         category_ids = validated_data.pop('category_ids', [])
         password = validated_data.pop('password')
+        email = (validated_data.get('email') or '').strip()
+        existing = User.objects.filter(email__iexact=email).first()
+
+        if existing and not existing.is_email_verified:
+            user = existing
+            user.username = validated_data['username']
+            user.first_name = validated_data.get('first_name', user.first_name)
+            user.last_name = validated_data.get('last_name', user.last_name)
+            user.phone = validated_data.get('phone', user.phone)
+            user.role = validated_data.get('role', user.role)
+            user.set_password(password)
+            user.save()
+
+            Profile.objects.get_or_create(user=user)
+
+            if user.role == 'provider':
+                provider, _ = Provider.objects.get_or_create(user=user)
+                categories = Category.objects.filter(id__in=category_ids)
+                provider.categories.set(categories)
+            return user
+
         user = User.objects.create_user(password=password, **validated_data)
         Profile.objects.create(user=user)
         

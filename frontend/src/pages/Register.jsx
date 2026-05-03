@@ -1,11 +1,10 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import api from '../api';
 import { User, Mail, Lock, Phone, UserCircle } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 
 const Register = () => {
-    const navigate = useNavigate();
     const { success, error: showError } = useToast();
     const [loading, setLoading] = useState(false);
     const [formData, setFormData] = useState({
@@ -66,8 +65,7 @@ const Register = () => {
 
         setLoading(true);
         try {
-            // Register user
-            await api.post('users/', {
+            const reg = await api.post('users/', {
                 username: formData.username,
                 email: formData.email,
                 password: formData.password,
@@ -78,14 +76,20 @@ const Register = () => {
                 category_ids: formData.role === 'provider' ? formData.category_ids : []
             });
 
+            if (reg.data?.token) {
+                localStorage.setItem('token', reg.data.token);
+                localStorage.setItem('userRole', reg.data.role || '');
+                localStorage.setItem('userId', String(reg.data.id || ''));
+            }
+
             try {
                 await api.post('auth/request-otp/', { email: formData.email });
             } catch (otpErr) {
-                console.warn('OTP request failed after signup', otpErr);
+                console.warn('OTP request after signup failed; use Resend on the verification page.', otpErr);
             }
             localStorage.setItem('verificationEmail', formData.email);
             success('Registration successful. Verify your email to continue.');
-            navigate('/verify-otp', { state: { email: formData.email } });
+            window.location.assign('/verify-otp');
         } catch (error) {
             console.error('Registration error:', error);
             if (error.response?.data) {
