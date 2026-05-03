@@ -1,3 +1,6 @@
+import os
+from email.utils import parseaddr
+
 from celery import shared_task
 from django.core.mail import EmailMultiAlternatives
 from django.template.loader import render_to_string
@@ -9,6 +12,56 @@ from .matcher import run_matcher_engine
 from .verification import run_ai_verification
 
 logger = logging.getLogger(__name__)
+
+
+def _merge_otp_mail_config(sys_settings):
+    """
+    DB SystemSettings first, then Space/process env (HF secrets often only hit env).
+    """
+    smtp_host = (sys_settings.smtp_host or "").strip() or (
+        os.environ.get("SMTP_HOST") or os.environ.get("EMAIL_HOST") or ""
+    ).strip()
+    port_raw = sys_settings.smtp_port
+    if port_raw is None:
+        pr = os.environ.get("SMTP_PORT") or os.environ.get("EMAIL_PORT")
+        smtp_port = int(pr) if pr else 587
+    else:
+        smtp_port = int(port_raw)
+    smtp_user = (sys_settings.smtp_user or "").strip() or (
+        os.environ.get("SMTP_USER") or os.environ.get("EMAIL_HOST_USER") or ""
+    ).strip()
+    smtp_password = (sys_settings.smtp_password or "").strip() or (
+        os.environ.get("SENDGRID_API_KEY")
+        or os.environ.get("EMAIL_HOST_PASSWORD")
+        or os.environ.get("SMTP_PASSWORD")
+        or ""
+    ).strip()
+    use_tls = sys_settings.smtp_use_tls
+    if os.environ.get("EMAIL_USE_TLS") is not None:
+        use_tls = os.environ.get("EMAIL_USE_TLS", "True").lower() == "true"
+    elif os.environ.get("SMTP_USE_TLS") is not None:
+        use_tls = os.environ.get("SMTP_USE_TLS", "True").lower() == "true"
+    from_display = (
+        (sys_settings.from_email or "").strip()
+        or os.environ.get("DEFAULT_FROM_EMAIL", "").strip()
+        or settings.DEFAULT_FROM_EMAIL
+    )
+    return smtp_host, smtp_port, smtp_user, smtp_password, use_tls, from_display
+
+
+def _sendgrid_from_payload(from_display):
+    """SendGrid v3 requires bare email in from.email; 'Name <email>' must be split."""
+    name, addr = parseaddr(from_display)
+    addr = (addr or "").strip()
+    if not addr and "@" in (from_display or ""):
+        addr = from_display.strip()
+    if not addr:
+        addr = "noreply@serveflow.ai"
+    out = {"email": addr}
+    if name and name.strip():
+        out["name"] = name.strip()
+    return out
+
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=30)
 def send_otp_email(self, email, otp):
@@ -43,66 +96,61 @@ def send_otp_email(self, email, otp):
         text_content = render_to_string('emails/otp_email.txt', context)
         
         sys_settings = SystemSettings.get_settings()
-        
-        # Priority: SystemSettings.from_email -> settings.DEFAULT_FROM_EMAIL
-        final_from_email = sys_settings.from_email or settings.DEFAULT_FROM_EMAIL
-        
-        # SendGrid Web API (Bearer) or SMTP: apikey + SG.* ; legacy Twilio/SK basic auth
-        is_sendgrid = (
-            sys_settings.smtp_user == "apikey"
-            or "sendgrid" in (sys_settings.smtp_host or "").lower()
-            or (
-                sys_settings.smtp_password
-                and str(sys_settings.smtp_password).startswith("SG.")
-            )
-            or (
-                sys_settings.smtp_user
-                and str(sys_settings.smtp_user).startswith("SK")
-            )
+        smtp_host, smtp_port, smtp_user, smtp_password, use_tls, final_from_email = _merge_otp_mail_config(
+            sys_settings
         )
-        
+
+        # SendGrid Web API (Bearer) or SMTP: apikey + SG.* ; legacy Twilio/SK basic auth
+        host_l = (smtp_host or "").lower()
+        is_sendgrid = (
+            smtp_user == "apikey"
+            or "sendgrid" in host_l
+            or (smtp_password and str(smtp_password).startswith("SG."))
+            or (smtp_user and str(smtp_user).startswith("SK"))
+        )
+
         if is_sendgrid:
             url = "https://api.sendgrid.com/v3/mail/send"
-            
+
             # Handle different auth types
-            if sys_settings.smtp_user and sys_settings.smtp_user.startswith('SK'):
+            if smtp_user and smtp_user.startswith("SK"):
                 from requests.auth import HTTPBasicAuth
-                auth = HTTPBasicAuth(sys_settings.smtp_user, sys_settings.smtp_password)
+
+                auth = HTTPBasicAuth(smtp_user, smtp_password)
                 headers = {"Content-Type": "application/json"}
             else:
                 auth = None
                 headers = {
-                    "Authorization": f"Bearer {sys_settings.smtp_password}",
-                    "Content-Type": "application/json"
+                    "Authorization": f"Bearer {smtp_password}",
+                    "Content-Type": "application/json",
                 }
 
             data = {
                 "personalizations": [{"to": [{"email": email}]}],
-                "from": {"email": final_from_email},
+                "from": _sendgrid_from_payload(final_from_email),
                 "subject": subject,
                 "content": [
                     {"type": "text/plain", "value": text_content},
-                    {"type": "text/html", "value": html_content}
-                ]
+                    {"type": "text/html", "value": html_content},
+                ],
             }
             res = requests.post(url, json=data, headers=headers, auth=auth, timeout=10)
             res.raise_for_status()
             logger.info(f"OTP email sent to {email} via SendGrid Web API")
         else:
             # Fallback to SMTP
-            # If no SMTP user is provided in SystemSettings, use the default connection from settings.py
-            if not sys_settings.smtp_user:
-                logger.info("No SMTP user in SystemSettings, using default Django connection.")
+            if not smtp_user and not getattr(settings, "EMAIL_HOST_USER", ""):
+                logger.info("No SMTP user in settings or env, using default Django connection.")
                 connection = get_connection()
             else:
-                logger.info(f"Using custom SMTP: {sys_settings.smtp_host}:{sys_settings.smtp_port}")
+                logger.info(f"Using SMTP: {smtp_host or settings.EMAIL_HOST}:{smtp_port}")
                 connection = get_connection(
-                    host=sys_settings.smtp_host,
-                    port=sys_settings.smtp_port,
-                    username=sys_settings.smtp_user,
-                    password=sys_settings.smtp_password,
-                    use_tls=sys_settings.smtp_use_tls,
-                    timeout=5
+                    host=smtp_host or settings.EMAIL_HOST,
+                    port=smtp_port or settings.EMAIL_PORT,
+                    username=smtp_user or settings.EMAIL_HOST_USER,
+                    password=smtp_password or settings.EMAIL_HOST_PASSWORD,
+                    use_tls=use_tls,
+                    timeout=10,
                 )
 
             msg = EmailMultiAlternatives(subject, text_content, final_from_email, [email], connection=connection)

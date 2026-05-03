@@ -14,18 +14,20 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "serveflow.settings")
 django_asgi_app = get_asgi_application()
 
 from channels.routing import ProtocolTypeRouter, URLRouter
-from channels.security.websocket import AllowedHostsOriginValidator
-from api.middleware_channels import TokenAuthMiddleware
+from channels.security.websocket import OriginValidator
+
+from api.middleware_channels import TokenAuthMiddleware, build_websocket_allowed_origin_patterns
 import api.routing
 
 application = ProtocolTypeRouter({
     "http": django_asgi_app,
-    "websocket": AllowedHostsOriginValidator(
+    "websocket": OriginValidator(
         TokenAuthMiddleware(
             URLRouter(
                 api.routing.websocket_urlpatterns
             )
-        )
+        ),
+        build_websocket_allowed_origin_patterns(),
     ),
 })
 
