@@ -9,33 +9,39 @@ import { useToast } from '../context/ToastContext';
 import { useTheme } from '../context/ThemeContext';
 import { useSettings } from '../context/SettingsContext';
 
+/** Full shape merged with GET /settings/config/ so inputs never see undefined. */
+const ADMIN_SETTINGS_FORM_DEFAULTS = {
+    id: 1,
+    platform_name: 'ServeFlow AI',
+    contact_email: '',
+    from_email: '',
+    currency_symbol: '$',
+    commission_percentage: 10.0,
+    tax_percentage: 0.0,
+    min_payout_amount: 50.0,
+    smtp_host: '',
+    smtp_port: 587,
+    smtp_user: '',
+    smtp_password: '',
+    smtp_use_tls: true,
+    maintenance_mode: false,
+    enable_ai_analysis: true,
+    enable_bidding_system: true,
+    require_provider_verification: true,
+    multi_issue_split_enabled: true,
+    gemini_api_key_1: '',
+    gemini_api_key_2: '',
+    gemini_api_key_3: '',
+    gemini_api_key_4: '',
+    gemini_api_key_5: '',
+    stripe_public_key: '',
+    stripe_secret_key: '',
+    stripe_webhook_secret: '',
+    stripe_mode: 'test',
+};
+
 const AdminSettings = () => {
-    const [settings, setSettings] = useState({
-        platform_name: 'ServeFlow AI',
-        contact_email: '',
-        currency_symbol: '$',
-        commission_percentage: 10.00,
-        tax_percentage: 0.00,
-        min_payout_amount: 50.00,
-        smtp_host: '',
-        smtp_port: 587,
-        smtp_user: '',
-        smtp_password: '',
-        smtp_use_tls: true,
-        maintenance_mode: false,
-        enable_ai_analysis: true,
-        enable_bidding_system: true,
-        require_provider_verification: true,
-        gemini_api_key_1: '',
-        gemini_api_key_2: '',
-        gemini_api_key_3: '',
-        gemini_api_key_4: '',
-        gemini_api_key_5: '',
-        stripe_public_key: '',
-        stripe_secret_key: '',
-        stripe_webhook_secret: '',
-        stripe_mode: 'test'
-    });
+    const [settings, setSettings] = useState(() => ({ ...ADMIN_SETTINGS_FORM_DEFAULTS }));
 
     const [stats, setStats] = useState({
         totalCommission: 0,
@@ -61,7 +67,7 @@ const AdminSettings = () => {
                 api.get('settings/config/'),
                 api.get('jobs/')
             ]);
-            setSettings(settingsRes.data);
+            setSettings({ ...ADMIN_SETTINGS_FORM_DEFAULTS, ...settingsRes.data });
 
             const completedJobs = jobsRes.data.filter(j => j.status === 'completed');
             setJobs(completedJobs.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at)));
@@ -91,7 +97,8 @@ const AdminSettings = () => {
         e.preventDefault();
         setSaving(true);
         try {
-            await api.post('settings/config/', settings);
+            const res = await api.post('settings/config/', settings);
+            setSettings({ ...ADMIN_SETTINGS_FORM_DEFAULTS, ...res.data });
             await refreshSettings();
             success('Platform settings updated successfully');
         } catch (error) {

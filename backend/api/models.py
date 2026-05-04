@@ -559,18 +559,27 @@ class SystemSettings(models.Model):
         
     @classmethod
     def get_settings(cls):
-        settings, created = cls.objects.get_or_create(id=1)
-        force_env = (
-            os.environ.get("SYNC_SETTINGS_FROM_ENV_FORCE", "False").lower() == "true"
-            or os.environ.get("HF_SYNC_SETTINGS_FROM_ENV", "False").lower() == "true"
-        )
-        settings.sync_from_env(force=force_env)
+        """
+        Return the singleton SystemSettings row. Does not call sync_from_env on every read
+        (that clobbered admin-edited values when env matched "defaults"). Use
+        ``python manage.py sync_settings_from_env`` or set
+        ``SYNC_SETTINGS_FROM_ENV_ON_EVERY_READ=true`` for legacy behavior.
+        """
+        settings, _created = cls.objects.get_or_create(id=1)
+        if os.environ.get("SYNC_SETTINGS_FROM_ENV_ON_EVERY_READ", "").lower() == "true":
+            force_env = (
+                os.environ.get("SYNC_SETTINGS_FROM_ENV_FORCE", "False").lower() == "true"
+                or os.environ.get("HF_SYNC_SETTINGS_FROM_ENV", "False").lower() == "true"
+            )
+            settings.sync_from_env(force=force_env)
         return settings
 
     def sync_from_env(self, force: bool = False):
         """
         Synchronizes system settings from environment variables.
         If force=False, it only populates fields that are currently blank or set to their default values.
+        Boolean fields are only updated from env when force=True (otherwise False == default would
+        always look "empty"). Blank env strings are ignored.
         """
         mapping = {
             # ENV_VAR_NAME: (field_name, type_converter, alternate_env_keys)
@@ -609,30 +618,40 @@ class SystemSettings(models.Model):
                     env_val = os.environ.get(alt_key)
                     if env_val is not None:
                         break
-            
-            if env_val is not None:
-                current_val = getattr(self, field_name)
-                field = self._meta.get_field(field_name)
-                default_val = field.default
-                
-                # Update if forced, or if current value is the default/empty
-                is_empty_or_default = (current_val == default_val) or (current_val in [None, '', 0, 0.0])
-                
-                if force or is_empty_or_default:
-                    try:
-                        new_val = converter(env_val)
-                        if new_val != current_val:
-                            setattr(self, field_name, new_val)
-                            changed = True
-                            update_fields.append(field_name)
-                    except (ValueError, TypeError):
-                        pass
+
+            if env_val is None:
+                continue
+            if str(env_val).strip() == "":
+                continue
+
+            current_val = getattr(self, field_name)
+            field = self._meta.get_field(field_name)
+            default_val = field.default
+
+            if isinstance(field, models.BooleanField):
+                if not force:
+                    continue
+            else:
+                is_empty_or_default = (current_val == default_val) or (
+                    current_val in [None, "", 0, 0.0]
+                )
+                if not force and not is_empty_or_default:
+                    continue
+
+            try:
+                new_val = converter(env_val)
+                if new_val != current_val:
+                    setattr(self, field_name, new_val)
+                    changed = True
+                    update_fields.append(field_name)
+            except (ValueError, TypeError):
+                pass
 
         # Also sync Gemini keys
         for i in range(1, 6):
             env_key = f"GEMINI_API_KEY_{i}"
             env_val = os.environ.get(env_key)
-            if env_val:
+            if env_val and str(env_val).strip():
                 field_name = f"gemini_api_key_{i}"
                 if force or not (getattr(self, field_name) or "").strip():
                     setattr(self, field_name, env_val.strip())

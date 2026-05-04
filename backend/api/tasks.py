@@ -70,8 +70,9 @@ def send_otp_email(self, email, otp):
 
     Hugging Face / production: set Space secrets, e.g. SMTP_HOST=smtp.sendgrid.net,
     SENDGRID_API_KEY=REDACTED_SENDGRID_KEY (sync maps to smtp_user=apikey + password), DEFAULT_FROM_EMAIL
-    (verified sender). Use SYNC_SETTINGS_FROM_ENV_FORCE=true or HF_SYNC_SETTINGS_FROM_ENV=true
-    once so env overwrites stale DB values. Check api_emailog in admin if delivery fails.
+    (verified sender).     For one-time env→DB sync run: ``python manage.py sync_settings_from_env --force``.
+    Legacy: SYNC_SETTINGS_FROM_ENV_ON_EVERY_READ=true restores old get_settings() sync.
+    Check api_emailog in admin if delivery fails.
     """
     # Check if OTP is globally enabled
     if not getattr(settings, 'ENABLE_EMAIL_OTP', False):
