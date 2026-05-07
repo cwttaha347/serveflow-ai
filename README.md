@@ -127,6 +127,13 @@ Comprehensive documentation for developers and stakeholders:
 
 ## 🚀 Setup Instructions
 
+### Quick Start on Windows (one-click setup + run)
+From the project root, double-click `run-serveflow.bat`.
+
+- First run: creates `.venv`, installs backend/frontend dependencies, runs migrations, then starts both servers.
+- Next runs: reads `.serveflow-setup.state` (`SETUP_DONE=true`) and only starts both servers.
+- To force setup again, run: `powershell -ExecutionPolicy Bypass -File .\start-serveflow.ps1 -ForceSetup`
+
 ### Prerequisites
 - Python 3.13+
 - Node.js 18+

@@ -738,15 +738,17 @@ class ChatbotIntentView(APIView):
 
     def _intent_via_db_gemini_keys(self, message, context):
         system_settings = SystemSettings.get_settings()
-        api_keys = [
-            system_settings.gemini_api_key_1,
-            system_settings.gemini_api_key_2,
-            system_settings.gemini_api_key_3,
-            system_settings.gemini_api_key_4,
-            system_settings.gemini_api_key_5,
-            getattr(settings, "GEMINI_API_KEY", ""),
-        ]
-        valid_keys = [k.strip() for k in api_keys if k and k.strip()]
+        # Use consolidated key loader so GEMINI_API_KEY_1..5 and GEMINI_API_KEYS
+        # from environment are honored even when DB row is not synced yet.
+        api_keys = system_settings.get_gemini_api_keys(prefer_env=True, sync_env_to_db=False)
+        single_key = (getattr(settings, "GEMINI_API_KEY", "") or "").strip()
+        if single_key:
+            api_keys.append(single_key)
+        valid_keys = []
+        for k in api_keys:
+            key = (k or "").strip()
+            if key and key not in valid_keys:
+                valid_keys.append(key)
         if not valid_keys:
             return None, "No Gemini keys configured in DB or environment"
 

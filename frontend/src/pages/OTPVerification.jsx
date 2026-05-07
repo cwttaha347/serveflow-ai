@@ -19,6 +19,24 @@ const OTPVerification = () => {
     const emailFromStorage = localStorage.getItem('verificationEmail');
     const email = emailFromState || emailFromStorage || '';
 
+    const resolveDashboardPath = (userData) => {
+        const { role: userRole, profile_completed, provider_onboarding_required } = userData || {};
+
+        if (userRole === 'provider' && provider_onboarding_required) {
+            return '/provider-onboarding';
+        }
+        if (!profile_completed) {
+            return '/dashboard/settings?onboarding=1';
+        }
+        if (userRole === 'admin') {
+            return '/dashboard/admin';
+        }
+        if (userRole === 'provider') {
+            return '/dashboard/provider';
+        }
+        return '/dashboard';
+    };
+
     useEffect(() => {
         const interval = setInterval(() => {
             setTimer((prev) => (prev > 0 ? prev - 1 : 0));
@@ -82,25 +100,25 @@ const OTPVerification = () => {
             });
             setVerified(true);
             localStorage.removeItem('verificationEmail');
-            
-            // Fetch updated user data to get role and verify status
-            const userRes = await api.get('users/me/');
-            const { role: userRole, profile_completed, provider_onboarding_required } = userRes.data;
 
-            // Redirect based on role (mirroring login logic)
-            setTimeout(() => {
-                if (userRole === 'provider' && provider_onboarding_required) {
-                    navigate('/provider-onboarding');
-                } else if (!profile_completed) {
-                    navigate('/dashboard/settings?onboarding=1');
-                } else if (userRole === 'admin') {
-                    navigate('/dashboard/admin');
-                } else if (userRole === 'provider') {
-                    navigate('/dashboard/provider');
-                } else {
-                    navigate('/dashboard');
-                }
-            }, 1500);
+            const token = localStorage.getItem('token');
+
+            // If user has no active session (common after signup OTP), send to login directly.
+            if (!token) {
+                setTimeout(() => navigate('/login', { state: { emailVerified: true, email } }), 1200);
+                return;
+            }
+
+            // Otherwise continue with role-based redirect.
+            try {
+                const userRes = await api.get('users/me/');
+                const nextPath = resolveDashboardPath(userRes.data);
+                setTimeout(() => navigate(nextPath), 1200);
+            } catch (meErr) {
+                // Session may be stale; avoid trapping user on OTP page.
+                console.error('Unable to fetch profile after OTP verification', meErr);
+                setTimeout(() => navigate('/login', { state: { emailVerified: true, email } }), 1200);
+            }
         } catch (err) {
             setError(err.response?.data?.error || 'Verification failed');
             // Shake animation would be triggered here
