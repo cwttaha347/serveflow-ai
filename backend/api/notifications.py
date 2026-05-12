@@ -50,5 +50,9 @@ def notify_job_update(job_obj, message, recipient_user):
         user_id=recipient_user.id,
         message=message,
         type='job_update',
-        payload={'job_id': job_obj.id, 'status': job_obj.status}
+        payload={
+            'job_id': job_obj.id,
+            'request_id': getattr(job_obj, 'request_id', None) or (job_obj.request.id if getattr(job_obj, 'request', None) else None),
+            'status': job_obj.status,
+        },
     )

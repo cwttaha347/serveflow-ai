@@ -14,6 +14,7 @@ import os
 import dj_database_url
 from pathlib import Path
 from dotenv import load_dotenv
+from corsheaders.defaults import default_headers
 
 load_dotenv()
 
@@ -32,8 +33,22 @@ DEBUG = os.environ.get("DEBUG", "True").lower() == "true"
 
 ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "localhost,127.0.0.1,*").split(",")
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:5173")
+# When True and Stripe is configured, manual/auto publishes require Checkout before jobs are created.
+# Set ESCROW_ON_PUBLISH=true in production when Stripe is configured (manual/auto publish require Checkout).
+ESCROW_ON_PUBLISH = os.environ.get("ESCROW_ON_PUBLISH", "False").lower() == "true"
 AI_SERVICE_URL = os.environ.get("AI_SERVICE_URL", "http://localhost:8001")
 MATCHING_SERVICE_URL = os.environ.get("MATCHING_SERVICE_URL", "http://localhost:8002")
+
+# Single Gemini key from env (also read in SystemSettings.get_gemini_api_keys for vision).
+GEMINI_API_KEY = (os.environ.get("GEMINI_API_KEY") or "").strip()
+
+# AI image vision (Gemini); AIImageAnalysisView clamps timeout 5–40s and retries per key in code.
+AI_VISION_TIMEOUT_SECONDS = float(os.environ.get("AI_VISION_TIMEOUT_SECONDS", "18"))
+AI_VISION_RETRIES_PER_KEY = int(os.environ.get("AI_VISION_RETRIES_PER_KEY", "2"))
+# Demo-only: returns placeholder analysis when Gemini is unavailable. Opt-in (do not silently fake AI).
+AI_VISION_ALLOW_SIMULATED_FALLBACK = (
+    os.environ.get("AI_VISION_ALLOW_SIMULATED_FALLBACK", "False").lower() == "true"
+)
 
 
 
@@ -239,6 +254,10 @@ CORS_ALLOW_ALL_ORIGINS = DEBUG
 CORS_ALLOWED_ORIGIN_REGEXES = [
     r"^https://.*\.hf\.space$",
     r"^https://.*\.koyeb\.app$",
+]
+
+CORS_ALLOW_HEADERS = list(default_headers) + [
+    "x-request-id",
 ]
 
 CSRF_TRUSTED_ORIGINS = [

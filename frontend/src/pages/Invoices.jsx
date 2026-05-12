@@ -8,6 +8,7 @@ import {
     AlertCircle, ChevronRight, CreditCard, ExternalLink, Loader2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { formatMoney } from '../utils/money';
 
 const Invoices = () => {
     const [invoices, setInvoices] = useState([]);
@@ -151,7 +152,7 @@ const Invoices = () => {
                                             </td>
                                             <td className="px-8 py-6">
                                                 <span className="text-lg font-black text-slate-900 dark:text-white">
-                                                    ${invoice.total}
+                                                    {formatMoney(invoice.total, settings.currency_symbol)}
                                                 </span>
                                             </td>
                                             <td className="px-8 py-6">

@@ -3,6 +3,7 @@ from django.conf import settings
 import requests as http_requests
 import hashlib
 import secrets
+from urllib.parse import urljoin
 from datetime import timedelta
 from rest_framework import viewsets, status
 from rest_framework.permissions import IsAuthenticated, AllowAny
@@ -23,7 +24,7 @@ from .audit import log_audit
 from rest_framework.authtoken.views import ObtainAuthToken
 from rest_framework.authtoken.models import Token
 from django.db.models import Q, Count, Max
-from .payments import create_checkout_session, process_webhook_event, confirm_invoice_payment
+from .payments import create_checkout_session, process_webhook_event, confirm_invoice_payment, execute_provider_payout, _stripe_currency_code
 from .tasks import process_verification_case
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
@@ -37,6 +38,13 @@ from .security import (
 )
 import logging
 logger = logging.getLogger(__name__)
+
+
+def _masked_email_fingerprint(email: str) -> str:
+    normalized = str(email or "").strip().lower()
+    if not normalized:
+        return ""
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:12]
 
 @method_decorator(csrf_exempt, name='dispatch')
 class CustomAuthToken(ObtainAuthToken):
@@ -93,14 +101,13 @@ class CustomAuthToken(ObtainAuthToken):
 class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all()
     serializer_class = UserSerializer
-    throttle_scope = "auth_login"
 
     def get_queryset(self):
         if self.request.user.role == 'admin':
             return User.objects.all()
         return User.objects.filter(id=self.request.user.id)
     def get_permissions(self):
-        if self.action == 'create':
+        if self.action in {'create', 'forgot_password', 'reset_password'}:
             return [AllowAny()]
         return [IsAuthenticated()]
     
@@ -180,29 +187,80 @@ class UserViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'], permission_classes=[AllowAny])
     def forgot_password(self, request):
-        email = request.data.get('email')
+        email = str(request.data.get('email') or '').strip().lower()
         if not email:
             return Response({'error': 'Email is required'}, status=400)
 
         generic_message = {'message': 'If an account exists, a reset link has been sent.'}
+        request_id = str(request.headers.get('X-Request-Id') or '').strip()[:80]
+        email_fp = _masked_email_fingerprint(email)
         try:
             user = User.objects.get(email=email)
             from .emails import send_resilient_mail
+            # Basic anti-abuse throttle per account.
+            cutoff = timezone.now() - timedelta(minutes=5)
+            if PasswordResetToken.objects.filter(user=user, created_at__gte=cutoff).exists():
+                logger.info(
+                    "forgot_password_outcome reason=cooldown_skip user_id=%s email_fp=%s request_id=%s",
+                    user.id,
+                    email_fp,
+                    request_id,
+                )
+                return Response(generic_message)
             raw_token = secrets.token_urlsafe(32)
             token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
             expires_at = timezone.now() + timedelta(hours=1)
             PasswordResetToken.objects.create(user=user, token_hash=token_hash, expires_at=expires_at)
-            reset_link = f"{settings.FRONTEND_URL.rstrip('/')}/reset-password?token={raw_token}"
+            front = str(getattr(settings, 'FRONTEND_URL', '') or '').strip().rstrip('/')
+            if not front:
+                logger.error(
+                    "forgot_password_outcome reason=missing_frontend_url user_id=%s email_fp=%s request_id=%s",
+                    user.id,
+                    email_fp,
+                    request_id,
+                )
+                return Response(generic_message)
+            reset_link = urljoin(f"{front}/", f"reset-password?token={raw_token}")
             
             subject = 'Password Reset - ServeFlow AI'
             message = f'Click the link to reset your password: {reset_link}'
             
-            send_resilient_mail(subject, message, [email])
+            sent = send_resilient_mail(
+                subject,
+                message,
+                [email],
+                log_context={
+                    "flow": "forgot_password",
+                    "user_id": user.id,
+                    "email_fp": email_fp,
+                    "request_id": request_id,
+                },
+            )
+            if not sent:
+                logger.error(
+                    "forgot_password_outcome reason=email_send_failed user_id=%s email_fp=%s request_id=%s",
+                    user.id,
+                    email_fp,
+                    request_id,
+                )
+            else:
+                logger.info(
+                    "forgot_password_outcome reason=email_sent user_id=%s email_fp=%s request_id=%s",
+                    user.id,
+                    email_fp,
+                    request_id,
+                )
             return Response(generic_message)
         except User.DoesNotExist:
+            logger.info("forgot_password_outcome reason=user_not_found email_fp=%s request_id=%s", email_fp, request_id)
             return Response(generic_message)
         except Exception as e:
-            logger.error(f"Forgot password error: {e}")
+            logger.exception(
+                "forgot_password_outcome reason=unexpected_error email_fp=%s request_id=%s error=%s",
+                email_fp,
+                request_id,
+                str(e),
+            )
             return Response(generic_message)
 
     @action(detail=False, methods=['post'], permission_classes=[AllowAny])
@@ -454,6 +512,51 @@ class ProviderViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(provider)
         return Response(serializer.data)
 
+    @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated], url_path='stripe-connect/onboarding')
+    def stripe_connect_onboarding(self, request):
+        try:
+            provider = request.user.provider_profile
+        except Provider.DoesNotExist:
+            return Response({'error': 'Only providers can connect payouts'}, status=403)
+        from .payments import create_connect_onboarding_link
+        front = str(getattr(settings, 'FRONTEND_URL', '') or '').strip().rstrip('/')
+        if not front:
+            return Response({'error': 'FRONTEND_URL is not configured'}, status=500)
+        refresh_url = request.data.get('refresh_url') or f"{front}/dashboard/provider/profile?stripe_refresh=1"
+        return_url = request.data.get('return_url') or f"{front}/dashboard/provider/profile?stripe_return=1"
+        try:
+            url = create_connect_onboarding_link(provider, refresh_url, return_url)
+        except Exception as e:
+            msg = str(e)
+            lower = msg.lower()
+            # Stripe returns this when the platform account hasn't enabled Connect.
+            if 'signed up for connect' in lower or '/connect' in lower:
+                return Response({
+                    'error': "Stripe Connect is not enabled on this Stripe account yet. Enable Connect in your Stripe dashboard, then try again.",
+                    'code': 'CONNECT_NOT_ENABLED',
+                    'action_url': 'https://dashboard.stripe.com/connect',
+                }, status=400)
+            return Response({'error': msg}, status=500)
+        return Response({'url': url})
+
+    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated], url_path='stripe-connect/status')
+    def stripe_connect_status(self, request):
+        try:
+            provider = request.user.provider_profile
+        except Provider.DoesNotExist:
+            return Response({'error': 'Only providers have payout status'}, status=403)
+        # Attempt a lightweight reconcile so stale DB flags do not block eligible providers.
+        try:
+            from .payments import sync_connect_status
+            sync_connect_status(provider)
+        except Exception:
+            # Status endpoint should not hard-fail on transient Stripe issues.
+            pass
+        return Response({
+            'stripe_connect_account_id': provider.stripe_connect_account_id,
+            'onboarding_complete': bool(provider.stripe_connect_onboarding_complete),
+        })
+
     @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
     def verify_bundle(self, request):
         """
@@ -506,6 +609,47 @@ class RequestViewSet(viewsets.ModelViewSet):
     queryset = Request.objects.all()
     serializer_class = RequestSerializer
     permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        user = getattr(self.request, "user", None)
+        if not user or not getattr(user, "is_authenticated", False):
+            return qs.none()
+        if getattr(user, "role", None) == "admin":
+            return qs
+        return qs.filter(user=user)
+
+    @action(detail=True, methods=['post'])
+    def cancel(self, request, pk=None):
+        """
+        Professional cancel policy:
+        - Allowed only for the request owner (or admin).
+        - Allowed only if there is no accepted/started/completed job.
+        - Transitions request to cancelled and cancels pending jobs.
+        """
+        service_request = self.get_object()
+        user = request.user
+        if getattr(user, "role", None) != "admin" and service_request.user_id != user.id:
+            return Response({"error": "Forbidden"}, status=403)
+
+        active_job = service_request.jobs.filter(status__in=["accepted", "started", "completed"]).first()
+        if active_job:
+            return Response(
+                {"error": "Cannot cancel a request that is already in progress.", "code": "CANNOT_CANCEL_ACTIVE_JOB"},
+                status=409,
+            )
+
+        if service_request.status in ["completed", "cancelled"]:
+            return Response(
+                {"status": service_request.status, "message": "No changes."},
+                status=200,
+            )
+
+        service_request.status = "cancelled"
+        service_request.save(update_fields=["status", "updated_at"])
+        Job.objects.filter(request=service_request, status="pending").update(status="cancelled")
+        notify_request_update(service_request, f"Request '{service_request.title}' was cancelled by the customer.")
+        return Response({"status": "cancelled"}, status=200)
     
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -856,6 +1000,8 @@ class JobViewSet(viewsets.ModelViewSet):
         instance.commission_rate = settings.commission_percentage
         instance.provider_earnings = amount - commission_amount
         instance.save()
+        if getattr(instance.request, 'escrow_status', 'not_required') in ('funded', 'released'):
+            return
         if not ProviderLedgerEntry.objects.filter(job=instance, entry_type='hold').exists():
             ProviderLedgerEntry.objects.create(
                 provider=instance.provider,
@@ -938,26 +1084,31 @@ class JobViewSet(viewsets.ModelViewSet):
         
         # Notify Customer
         notify_request_update(job.request, f"Job '{job.request.title}' has been completed!")
-        
-        # Auto-generate invoice if doesn't exist
-        if not hasattr(job, 'invoice'):
-            try:
-                budget = job.request.budget or 0
-                sys_settings = SystemSettings.get_settings()
-                tax_amount = (budget * sys_settings.tax_percentage) / 100
-                Invoice.objects.create(
-                    job=job,
-                    subtotal=budget,
-                    tax=tax_amount,
-                    discount=0,
-                    total=budget + tax_amount,
-                    paid=False
-                )
-                print(f"DEBUG: Auto-created invoice for Job #{job.id}")
-            except Exception as e:
-                print(f"DEBUG: Error creating invoice: {e}")
-        
-        return Response({'status': 'job completed', 'invoice_created': True})
+
+        if getattr(job.request, 'escrow_status', 'not_required') == 'funded':
+            from .payments import try_release_escrow_to_provider
+            try_release_escrow_to_provider(job)
+
+        invoice_created = False
+        if getattr(job.request, 'escrow_status', 'not_required') not in ('funded', 'released'):
+            if not hasattr(job, 'invoice'):
+                try:
+                    budget = job.request.budget or 0
+                    sys_settings = SystemSettings.get_settings()
+                    tax_amount = (budget * sys_settings.tax_percentage) / 100
+                    Invoice.objects.create(
+                        job=job,
+                        subtotal=budget,
+                        tax=tax_amount,
+                        discount=0,
+                        total=budget + tax_amount,
+                        paid=False
+                    )
+                    invoice_created = True
+                except Exception as e:
+                    print(f"DEBUG: Error creating invoice: {e}")
+
+        return Response({'status': 'job completed', 'invoice_created': invoice_created})
 
     @action(detail=True, methods=['post'])
     def cancel(self, request, pk=None):
@@ -1189,7 +1340,25 @@ class ProviderPayoutViewSet(viewsets.ModelViewSet):
         sys_settings = SystemSettings.get_settings()
         if amount < sys_settings.min_payout_amount:
             raise ValidationError(f"Minimum payout amount is {sys_settings.min_payout_amount}")
-        serializer.save(provider=provider)
+        # Ensure provider has enough available balance (earned - paid_out).
+        ledger = ProviderLedgerEntry.objects.filter(provider=provider)
+        earned = sum(float(x.amount) for x in ledger.filter(entry_type='earned'))
+        paid_out = sum(float(x.amount) for x in ledger.filter(entry_type='payout'))
+        available = earned - paid_out
+        if float(amount) > float(available):
+            raise ValidationError(f"Insufficient balance. Available: {round(available, 2)}")
+
+        currency = str(serializer.validated_data.get('currency') or '').strip() or _stripe_currency_code().upper()
+        payout = serializer.save(provider=provider, currency=currency)
+
+        # Auto-process through Stripe Connect if onboarded; otherwise keep pending (manual ops).
+        if provider.stripe_connect_onboarding_complete and provider.stripe_connect_account_id:
+            try:
+                execute_provider_payout(payout)
+            except Exception as exc:
+                payout.status = 'failed'
+                payout.save(update_fields=['status'])
+                raise ValidationError(str(exc))
 
     def perform_update(self, serializer):
         payout = serializer.save()
@@ -1286,6 +1455,34 @@ class StripeConfirmView(APIView):
         try:
             reconciled = confirm_invoice_payment(invoice, session_id=session_id)
             return Response(reconciled, status=200)
+        except Exception as e:
+            return Response({'error': str(e)}, status=500)
+
+
+class StripeStatusView(APIView):
+    """
+    Debug endpoint to confirm which Stripe account/mode the backend is using.
+    Does NOT expose any secret keys.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if request.user.role not in ['admin', 'provider']:
+            return Response({'error': 'Forbidden'}, status=403)
+        try:
+            ss = SystemSettings.get_settings()
+            stripe_client = get_stripe_client()
+            acct = stripe_client.Account.retrieve()
+            return Response({
+                'stripe_mode': ss.stripe_mode,
+                'stripe_account_id': acct.get('id'),
+                'stripe_account_email': acct.get('email'),
+                'charges_enabled': bool(acct.get('charges_enabled')),
+                'payouts_enabled': bool(acct.get('payouts_enabled')),
+                'details_submitted': bool(acct.get('details_submitted')),
+                'country': acct.get('country'),
+                'type': acct.get('type'),
+            })
         except Exception as e:
             return Response({'error': str(e)}, status=500)
 
@@ -1404,7 +1601,7 @@ class NotificationFeedView(APIView):
         # Inject unread chat messages as synthetic notification items
         chat_msgs = (
             Message.objects.filter(receiver=request.user, is_read=False)
-            .select_related('sender', 'job')
+            .select_related('sender', 'job', 'job__request')
             .order_by('-created_at')[:20]
         )
         for msg in chat_msgs:
@@ -1412,12 +1609,18 @@ class NotificationFeedView(APIView):
             job_title = ''
             if msg.job and hasattr(msg.job, 'request') and msg.job.request:
                 job_title = msg.job.request.title or ''
+            req_id = msg.job.request_id if msg.job else None
             items.append({
                 'id': f'chat_{msg.id}',
                 'type': 'chat_message',
                 'title': f'Message from {sender_name}',
                 'message': (msg.content or '')[:120],
-                'payload': {'job_id': msg.job_id, 'sender_id': msg.sender_id, 'job_title': job_title},
+                'payload': {
+                    'job_id': msg.job_id,
+                    'request_id': req_id,
+                    'sender_id': msg.sender_id,
+                    'job_title': job_title,
+                },
                 'is_read': False,
                 'created_at': msg.created_at,
             })

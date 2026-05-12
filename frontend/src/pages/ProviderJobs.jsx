@@ -1,10 +1,13 @@
 import { useState, useEffect } from 'react';
 import api from '../api';
-import { Briefcase, Calendar, MapPin, DollarSign, CheckCircle, Clock, XCircle } from 'lucide-react';
+import { Briefcase, Calendar, MapPin, CheckCircle, Clock, XCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useSettings } from '../context/SettingsContext';
+import { formatMoney } from '../utils/money';
 
 const ProviderJobs = () => {
     const navigate = useNavigate();
+    const { settings } = useSettings();
     const [jobs, setJobs] = useState([]);
     const [loading, setLoading] = useState(true);
     const [filter, setFilter] = useState('all');
@@ -95,8 +98,7 @@ const ProviderJobs = () => {
                                     {job.status}
                                 </span>
                                 <div className="flex items-center justify-end gap-1 font-semibold text-slate-900 dark:text-slate-100">
-                                    <DollarSign className="w-4 h-4" />
-                                    {job.provider_earnings || 0}
+                                    {formatMoney(job.provider_earnings || 0, settings)}
                                 </div>
                             </div>
                         </div>

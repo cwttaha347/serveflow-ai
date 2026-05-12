@@ -31,13 +31,13 @@ urlpatterns = [
     path("health/", lambda request: JsonResponse({"status": "ok", "service": "backend"})),
 ]
 
-# React SPA Catch-all
+# Serve uploads BEFORE SPA catch-all — otherwise `<path:path>` matches `/media/...`
+# and TemplateView tries to render index.html (500 + TemplateDoesNotExist).
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+
+# React SPA Catch-all (must be last among path() routes)
 urlpatterns += [
     path("", TemplateView.as_view(template_name="index.html"), name="index"),
     path("<path:path>", TemplateView.as_view(template_name="index.html")),
 ]
-
-
-# Serve media files in development
-if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

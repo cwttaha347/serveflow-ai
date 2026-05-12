@@ -4,6 +4,7 @@ import api from '../api';
 import { Printer, Download, ArrowLeft, Loader2, CheckCircle2, AlertCircle, CreditCard } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 import { useSettings } from '../context/SettingsContext';
+import { formatMoney } from '../utils/money';
 
 const InvoiceDetail = () => {
     const { settings } = useSettings();
@@ -228,7 +229,7 @@ const InvoiceDetail = () => {
                                         <p className="text-sm text-slate-500 dark:text-slate-400 break-words">{invoice.job?.request?.description}</p>
                                     </td>
                                     <td className="px-3 sm:px-6 py-3 sm:py-4 text-right font-bold text-slate-900 dark:text-white">
-                                        {settings.currency_symbol}{Number(invoice.subtotal).toFixed(2)}
+                                        {formatMoney(invoice.subtotal, settings)}
                                     </td>
                                 </tr>
                             </tbody>
@@ -241,15 +242,15 @@ const InvoiceDetail = () => {
                     <div className="max-w-xs ml-auto space-y-3">
                         <div className="flex justify-between text-slate-500">
                             <span>Subtotal</span>
-                            <span>{settings.currency_symbol}{Number(invoice.subtotal).toFixed(2)}</span>
+                            <span>{formatMoney(invoice.subtotal, settings)}</span>
                         </div>
                         <div className="flex justify-between text-slate-500">
                             <span>Tax (0%)</span>
-                            <span>{settings.currency_symbol}0.00</span>
+                            <span>{formatMoney(0, settings)}</span>
                         </div>
                         <div className="flex justify-between text-xl font-black text-slate-900 dark:text-white pt-3 border-t border-slate-200 dark:border-slate-700">
                             <span>Total</span>
-                            <span>{settings.currency_symbol}{Number(invoice.total).toFixed(2)}</span>
+                            <span>{formatMoney(invoice.total, settings)}</span>
                         </div>
                     </div>
                 </div>

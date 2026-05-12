@@ -9,12 +9,14 @@ import {
 import api from '../api';
 import { useToast } from '../context/ToastContext';
 import ThemeToggle from '../components/ThemeToggle';
+import { useAuth } from '../context/AuthContext';
 
 const Settings = () => {
     const { theme, toggleTheme } = useTheme();
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
     const { success, error: showError } = useToast();
+    const { user: authUser } = useAuth();
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [activeTab, setActiveTab] = useState('profile');
@@ -144,7 +146,7 @@ const Settings = () => {
     const tabs = [
         { id: 'profile', label: 'Personal Info', icon: User },
         { id: 'security', label: 'Security', icon: Lock },
-        ...(userData?.role === 'provider' ? [{ id: 'provider', label: 'Professional Profile', icon: Briefcase }] : []),
+        ...((authUser?.role || userData?.role) === 'provider' ? [{ id: 'provider', label: 'Professional Profile', icon: Briefcase }] : []),
         { id: 'appearance', label: 'Look & Feel', icon: Palette },
     ];
 

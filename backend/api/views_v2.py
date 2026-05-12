@@ -5,6 +5,7 @@ import json
 import re
 import difflib
 import requests
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from django.conf import settings
 from django.db import transaction
 from django.db.models import Avg
@@ -168,57 +169,8 @@ def _recommend_mode(ranked):
     return mode, reason
 
 
-def _create_request_and_jobs(*, actor_user, payload, audit_request=None, source_event="request_flow_decision", group_id=""):
-    category = Category.objects.filter(id=payload.get("category_id"), is_active=True).first()
-    if not category:
-        return None, Response({"error": "Invalid category_id."}, status=400)
-
-    profile = getattr(actor_user, "profile", None)
-    if not profile or not (profile.address or "").strip():
-        return None, Response({"error": "Profile address is required."}, status=400)
-
-    mode = payload.get("mode", "manual")
-    if mode not in {"manual", "auto", "broadcast"}:
-        return None, Response({"error": "mode must be manual, auto, or broadcast."}, status=400)
-
-    severity = _safe_int(payload.get("severity_score"), 5)
-    estimate = _estimate_for_request(category, severity, provider_count=10)
-    final_budget = _to_decimal(payload.get("budget_recommended"), str(estimate["budget_recommended"]))
-    if final_budget < _to_decimal(estimate["budget_floor"]):
-        return None, Response({
-            "error": "Budget violates strict provider-profit floor.",
-            "budget_floor": estimate["budget_floor"],
-        }, status=400)
-
-    req = Request.objects.create(
-        user=actor_user,
-        group_id=str(group_id or "").strip(),
-        category=category,
-        title=str(payload.get("title", "")).strip(),
-        description=str(payload.get("description", "")).strip(),
-        address=profile.address,
-        preferred_date=payload.get("preferred_date"),
-        budget=final_budget,
-        status='pending',
-        ai_summary={
-            "estimated_hours": estimate["est_hours"],
-            "budget_floor": estimate["budget_floor"],
-            "budget_recommended": float(final_budget),
-            "decision_mode": mode,
-            "source_event": source_event,
-        },
-    )
-
-    ranked = _rank_providers({
-        "category": category.id,
-        "category_id": category.id,
-        "title": req.title,
-        "description": req.description,
-        "latitude": payload.get("latitude") or profile.latitude,
-        "longitude": payload.get("longitude") or profile.longitude,
-    }, category, final_budget)
-
-    selected_provider_id = payload.get("selected_provider")
+def _dispatch_jobs_for_request(req, category, mode, selected_provider_id, ranked):
+    """Create Job rows and notify providers. Returns (job_ids, error_response_or_none)."""
     jobs_created = []
     if mode == "manual":
         if not selected_provider_id:
@@ -259,9 +211,167 @@ def _create_request_and_jobs(*, actor_user, payload, audit_request=None, source_
                 type='new_job',
                 payload={'job_id': job.id, 'request_id': req.id},
             )
+    return jobs_created, None
 
+
+def _escrow_publish_enabled(mode):
+    if mode == "broadcast":
+        return False
+    if not getattr(settings, "ESCROW_ON_PUBLISH", True):
+        return False
+    ss = SystemSettings.get_settings()
+    return bool((ss.stripe_secret_key or "").strip())
+
+
+def finalize_escrow_jobs(request_id: int):
+    """
+    After successful escrow Checkout, create jobs that were deferred at publish time.
+    Idempotent: only runs while escrow_status is awaiting_payment.
+    """
+    with transaction.atomic():
+        req = (
+            Request.objects.select_for_update()
+            .select_related("user", "user__profile", "category")
+            .filter(id=request_id)
+            .first()
+        )
+        if not req or req.escrow_status != "awaiting_payment":
+            return
+        category = req.category
+        if not category:
+            return
+        profile = getattr(req.user, "profile", None)
+        if not profile:
+            return
+        summary = req.ai_summary or {}
+        mode = summary.get("decision_mode") or "manual"
+        raw_sel = summary.get("selected_provider_id")
+        try:
+            selected_provider_id = int(raw_sel) if raw_sel not in (None, "") else None
+        except (TypeError, ValueError):
+            selected_provider_id = None
+        severity = _safe_int(summary.get("severity_score"), 5)
+        estimate = _estimate_for_request(category, severity, 10)
+        final_budget = req.budget or _to_decimal(estimate["budget_recommended"])
+        payload_ctx = {
+            "category": category.id,
+            "category_id": category.id,
+            "title": req.title,
+            "description": req.description,
+            "latitude": summary.get("latitude") or profile.latitude,
+            "longitude": summary.get("longitude") or profile.longitude,
+        }
+        ranked = _rank_providers(payload_ctx, category, float(final_budget))
+        jobs_created, err = _dispatch_jobs_for_request(req, category, mode, selected_provider_id, ranked)
+        if err:
+            return
+        req.escrow_status = "funded"
+        req.save(update_fields=["escrow_status", "updated_at"])
+
+
+def _create_request_and_jobs(*, actor_user, payload, audit_request=None, source_event="request_flow_decision", group_id=""):
+    category = Category.objects.filter(id=payload.get("category_id"), is_active=True).first()
+    if not category:
+        return None, Response({"error": "Invalid category_id."}, status=400)
+
+    profile = getattr(actor_user, "profile", None)
+    if not profile or not (profile.address or "").strip():
+        return None, Response({"error": "Profile address is required."}, status=400)
+
+    mode = payload.get("mode", "manual")
+    if mode not in {"manual", "auto", "broadcast"}:
+        return None, Response({"error": "mode must be manual, auto, or broadcast."}, status=400)
+
+    severity = _safe_int(payload.get("severity_score"), 5)
+    estimate = _estimate_for_request(category, severity, provider_count=10)
+    final_budget = _to_decimal(payload.get("budget_recommended"), str(estimate["budget_recommended"]))
+    if final_budget < _to_decimal(estimate["budget_floor"]):
+        return None, Response({
+            "error": "Budget violates strict provider-profit floor.",
+            "budget_floor": estimate["budget_floor"],
+        }, status=400)
+
+    rewritten_description = str(payload.get("rewritten_description") or "").strip()
+    raw_description = str(payload.get("description", "")).strip()
+    final_description = rewritten_description or raw_description
+
+    sel_raw = payload.get("selected_provider")
+    try:
+        selected_provider_id = int(sel_raw) if sel_raw not in (None, "") else None
+    except (TypeError, ValueError):
+        selected_provider_id = None
+
+    lat_save = payload.get("latitude") or profile.latitude
+    lon_save = payload.get("longitude") or profile.longitude
+
+    def _coord_json(val):
+        if val is None or val == "":
+            return None
+        try:
+            return float(val)
+        except (TypeError, ValueError):
+            return None
+
+    req = Request.objects.create(
+        user=actor_user,
+        group_id=str(group_id or "").strip(),
+        category=category,
+        title=str(payload.get("title", "")).strip(),
+        description=final_description,
+        address=profile.address,
+        preferred_date=payload.get("preferred_date"),
+        budget=final_budget,
+        status='pending',
+        escrow_status='not_required',
+        ai_summary={
+            "rewritten_description": rewritten_description,
+            "original_description": raw_description,
+            "estimated_hours": estimate["est_hours"],
+            "budget_floor": estimate["budget_floor"],
+            "budget_recommended": float(final_budget),
+            "decision_mode": mode,
+            "selected_provider_id": selected_provider_id,
+            "severity_score": severity,
+            "latitude": _coord_json(lat_save),
+            "longitude": _coord_json(lon_save),
+            "source_event": source_event,
+        },
+    )
+
+    ranked = _rank_providers({
+        "category": category.id,
+        "category_id": category.id,
+        "title": req.title,
+        "description": req.description,
+        "latitude": lat_save,
+        "longitude": lon_save,
+    }, category, final_budget)
+
+    use_escrow = _escrow_publish_enabled(mode)
     mode_recommended, reason = _recommend_mode(ranked)
     scores = _business_scores(len(ranked), ranked, estimate)
+
+    session = None
+    if use_escrow:
+        from .payments import create_escrow_checkout_session
+        req.escrow_status = 'awaiting_payment'
+        req.save(update_fields=['escrow_status'])
+        front = settings.FRONTEND_URL.rstrip('/')
+        success_url = f"{front}/dashboard/my-requests?escrow=success&request_id={req.id}&session_id={{CHECKOUT_SESSION_ID}}"
+        cancel_url = f"{front}/create-request?escrow=cancelled&request_id={req.id}"
+        try:
+            session = create_escrow_checkout_session(req, success_url, cancel_url)
+        except Exception as e:
+            req.delete()
+            return None, Response({"error": str(e), "detail": "Checkout could not be started; try again or contact support."}, status=500)
+        req.escrow_checkout_session_id = session.id
+        req.save(update_fields=['escrow_checkout_session_id'])
+        jobs_created = []
+    else:
+        jobs_created, job_err = _dispatch_jobs_for_request(req, category, mode, selected_provider_id, ranked)
+        if job_err:
+            return None, job_err
+
     if mode != mode_recommended:
         log_audit(
             user=actor_user,
@@ -283,7 +393,9 @@ def _create_request_and_jobs(*, actor_user, payload, audit_request=None, source_
         model_name='RequestDecision',
         obj=req,
         changes={
-            "event_name": "chat_publish_success" if source_event == "chatbot_publish" else "request_publish_success",
+            "event_name": "chat_escrow_checkout_created" if use_escrow else (
+                "chat_publish_success" if source_event == "chatbot_publish" else "request_publish_success"
+            ),
             "mode": mode,
             "recommended_mode": mode_recommended,
             "jobs_created": len(jobs_created),
@@ -303,7 +415,11 @@ def _create_request_and_jobs(*, actor_user, payload, audit_request=None, source_
         "job_ids": jobs_created,
         "status": req.status,
         "business_scores": scores,
+        "escrow_required": bool(use_escrow),
     }
+    if use_escrow and session:
+        response["checkout_url"] = session.url
+        response["checkout_session_id"] = session.id
     return response, None
 
 class ServiceRequestCreateView(APIView):
@@ -647,6 +763,25 @@ class ChatbotEventView(APIView):
 class ChatbotIntentView(APIView):
     permission_classes = [permissions.AllowAny]
 
+    def _intent_via_db_gemini_keys_with_timeout(self, message, context, timeout_s: float):
+        """
+        Run Gemini intent generation with a hard wall-clock timeout.
+
+        We do this because the browser has a ~28s timeout for `/api/chatbot/intent/`.
+        If Gemini is slow/unavailable, we fall back to lightweight category inference.
+        """
+        timeout_s = float(timeout_s or 0) if timeout_s is not None else 0
+        # Clamp so we never exceed the frontend timeout budget.
+        # Frontend `/api/chatbot/intent/` timeout is ~28s.
+        timeout_s = max(1.5, min(timeout_s, 25.0))
+
+        with ThreadPoolExecutor(max_workers=1) as ex:
+            fut = ex.submit(self._intent_via_db_gemini_keys, message, context)
+            try:
+                return fut.result(timeout=timeout_s)
+            except FuturesTimeoutError:
+                return None, f"gemini_intent_timeout_after_{timeout_s}s"
+
     def _tokenize(self, text):
         tokens = []
         for raw in re.findall(r"[a-z0-9]{3,}", str(text or "").lower()):
@@ -687,6 +822,147 @@ class ChatbotIntentView(APIView):
         if can_prepare_draft:
             options.append({"label": "Prepare draft now", "value": "prepare_draft", "action": "prepare_draft"})
         return options[:6]
+
+    def _normalize_optional_slots(self, parsed):
+        if not isinstance(parsed, dict):
+            return parsed
+        raw_date = str(parsed.get("preferred_date_iso") or "").strip()
+        parsed["preferred_date_iso"] = raw_date if raw_date else ""
+        try:
+            parsed["suggested_provider_id"] = int(parsed.get("suggested_provider_id")) if parsed.get("suggested_provider_id") not in (None, "") else None
+        except (TypeError, ValueError):
+            parsed["suggested_provider_id"] = None
+        parsed["needs_confirmation"] = bool(parsed.get("needs_confirmation", True))
+        return parsed
+
+    def _normalize_intent_payload(self, message, parsed, available_categories):
+        """Apply category normalization + trade safeguards to any intent JSON (Gemini or AI microservice)."""
+        if not isinstance(parsed, dict):
+            return parsed
+        cat = self._normalize_category(parsed.get("suggested_category"), available_categories)
+        parsed["suggested_category"] = cat
+        self._reconcile_gemini_trade_with_user_text(message, parsed, available_categories)
+        parsed = self._normalize_optional_slots(parsed)
+        return parsed
+
+    def _reconcile_gemini_trade_with_user_text(self, message, parsed, available_categories):
+        """When wording clearly implies a trade, fix wrong AI category/description (e.g. sink leak → Plumbing)."""
+        forced_name = self._infer_trade_from_keywords(message, available_categories)
+        nf = self._normalize_category(forced_name, available_categories) if forced_name else ""
+        if not nf:
+            return
+
+        ml = str(message or "").lower()
+        desc_lc = str(parsed.get("suggested_description") or "").lower()
+        current = self._normalize_category(parsed.get("suggested_category"), available_categories)
+
+        plumb_kw = (
+            "sink", "faucet", "drain", "toilet", "pipe", "leak", "leaking", "leaked", "plumb",
+            "clog", "clogged", "sewer", "disposal", "water line", "p-trap",
+        )
+        elec_kw = (
+            "outlet", "breaker", "wiring", "electrical", "fuse", "light switch", "circuit",
+        )
+
+        plumb_msg = any(k in ml for k in plumb_kw)
+        elec_msg = any(k in ml for k in elec_kw)
+
+        if plumb_msg and not elec_msg and "plumb" in nf.lower():
+            parsed["suggested_category"] = nf
+            if "electrical" in desc_lc or "electric" in desc_lc or (current and "electrical" in current.lower()):
+                qt = str(message).strip().replace('"', "'")[:320]
+                parsed["suggested_description"] = (
+                    f'The customer reports: "{qt}". This describes a plumbing problem (fixture, drain, or pipe). '
+                    "A licensed provider should inspect and complete the repair."
+                )
+            return
+
+        if elec_msg and not plumb_msg and "electr" in nf.lower():
+            parsed["suggested_category"] = nf
+            return
+
+        if not plumb_msg and not elec_msg and nf and (not current or nf.lower() != current.lower()):
+            parsed["suggested_category"] = nf
+
+    def _infer_trade_from_keywords(self, message, available_categories):
+        """Map common symptom words to a category name from available_categories (fixes empty lightweight match)."""
+        ml = str(message or "").lower()
+        clusters = (
+            ("plumbing", {"sink", "faucet", "drain", "toilet", "pipe", "leak", "leaking", "leaked", "plumb",
+                          "clog", "clogged", "sewer", "disposal", "water line", "p-trap"}),
+            ("electrical", {"outlet", "breaker", "wiring", "electrical", "fuse", "short circuit", "light switch",
+                            "breaker panel", "blackout"}),
+            ("hvac", {"furnace", "thermostat", "cooling", "heating"}),
+            ("paint", {"paint", "painting", "painter"}),
+            ("clean", {"clean", "cleaning"}),
+        )
+        for cat_slug, needles in clusters:
+            hit = phrase_hit = False
+            for n in needles:
+                if len(n.split()) > 1:
+                    if n in ml:
+                        phrase_hit = True
+                        break
+                elif len(n) >= 4:
+                    if n in ml:
+                        hit = True
+                        break
+                else:
+                    for tok in ml.replace(",", " ").split():
+                        tok = "".join(ch for ch in tok if ch.isalnum() or ch in "-''").strip().lower()
+                        if tok == n:
+                            hit = True
+                            break
+                    if hit:
+                        break
+            if phrase_hit:
+                hit = True
+            if not hit:
+                continue
+            for cat in available_categories:
+                name = str(cat.get("name", "") or "").strip().lower()
+                if not name:
+                    continue
+                if cat_slug in name:
+                    # Return canonical capitalization from catalog
+                    return str(cat.get("name", "") or "").strip()
+        return ""
+
+    def _infer_category_lightweight(self, message, available_categories):
+        """
+        Fast category guess from user text vs category names only (no N+1 DB scans).
+        Used for intent fallback so first chat message returns in seconds, not tens of seconds.
+        """
+        kw_hit = self._infer_trade_from_keywords(message, available_categories)
+        if kw_hit:
+            return kw_hit
+
+        message_tokens = self._tokenize(message)
+        if not message_tokens:
+            return ""
+
+        best_name = ""
+        best_score = 0.0
+        for cat in available_categories:
+            name = str(cat.get("name", "")).strip()
+            if not name:
+                continue
+            cat_tokens = self._tokenize(name)
+            if not cat_tokens:
+                continue
+            exact_overlap = len(message_tokens.intersection(cat_tokens))
+            fuzzy_overlap = 0
+            for mt in message_tokens:
+                if mt in cat_tokens:
+                    continue
+                similarity = max((difflib.SequenceMatcher(None, mt, ct).ratio() for ct in cat_tokens), default=0)
+                if similarity >= 0.74:
+                    fuzzy_overlap += 1
+            score = (exact_overlap + (0.7 * fuzzy_overlap)) / max(1, len(message_tokens))
+            if score > best_score:
+                best_score = score
+                best_name = name
+        return best_name if best_score >= 0.08 else ""
 
     def _infer_category_from_market_data(self, message, available_categories):
         message_tokens = self._tokenize(message)
@@ -765,13 +1041,17 @@ Return ONLY strict JSON:
   "suggested_category": "one category from provided category list, or empty string",
   "urgency": "low | medium | high",
   "preferred_mode": "manual | auto | broadcast",
-  "suggested_title": "short action title",
+  "preferred_date_iso": "optional ISO datetime string when inferable",
+  "suggested_provider_id": "optional provider id from context when inferable",
+  "needs_confirmation": true,
+  "suggested_title": "short professional title for the service request",
+  "suggested_description": "clear 2-4 sentence description for providers (rewrite user issue professionally)",
   "assistant_reply": "concise professional response",
   "issue_groups": [
     {{"title":"string","description":"string","suggested_category":"string"}}
   ],
   "quick_options": [
-    {{"label":"string","value":"string","action":"choose_category | set_mode | set_urgency | prepare_draft | publish"}}
+    {{"label":"string","value":"string","action":"choose_category | set_mode | set_urgency | set_preferred_date | set_selected_provider | prepare_draft | publish"}}
   ]
 }}
 Available categories: {categories_text}
@@ -781,19 +1061,35 @@ Conversation history (recent): {convo}
 Rules:
 - Analyze user text automatically; do not ask category if confidence is high and a category match exists.
 - Use category exactly from available list when possible.
+- Never assign Electrical for obvious plumbing symptoms (sink, faucet, drain, leak, toilet, pipe).
+- Never assign Plumbing for obvious electrical work (breaker, outlet, wiring, fuse). Match the customer's trade honestly.
+- suggested_description must describe the SAME type of issue as suggested_category; do not invent a different trade.
 - Provide only 2-5 relevant options.
 - Include "prepare_draft" when title, description, and category are available or inferable.
 """
 
+        # Keep generation calls fast enough to fit the browser timeout budget.
+        max_keys = getattr(settings, "CHATBOT_INTENT_GEMINI_MAX_KEYS", 1)
+        try:
+            max_keys = int(max_keys)
+        except (TypeError, ValueError):
+            max_keys = 1
+        max_keys = max(1, min(max_keys, len(valid_keys)))
+
         last_error = None
-        for key in valid_keys:
+        for key in valid_keys[:max_keys]:
             try:
                 client = genai.Client(api_key=key)
                 model_name = resolve_gemini_model_name(key)
                 response = client.models.generate_content(
                     model=model_name,
                     contents=prompt,
-                    config=types.GenerateContentConfig(response_mime_type="application/json"),
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        temperature=0.2,
+                        top_p=0.9,
+                        max_output_tokens=512,
+                    ),
                 )
                 text = (response.text or "").strip()
                 if text.startswith("```json"):
@@ -802,8 +1098,8 @@ Rules:
                     text = text.split("```", 1)[1].split("```", 1)[0].strip()
                 parsed = json.loads(text)
 
-                category_name = self._normalize_category(parsed.get("suggested_category"), available_categories)
-                parsed["suggested_category"] = category_name
+                parsed = self._normalize_intent_payload(message, parsed, available_categories)
+                category_name = parsed.get("suggested_category") or ""
                 parsed["source"] = "backend_db_gemini"
                 if not isinstance(parsed.get("issue_groups"), list):
                     parsed["issue_groups"] = []
@@ -833,7 +1129,7 @@ Rules:
             return []
         groups = []
         for idx, part in enumerate(raw_parts[:5], start=1):
-            suggested = self._infer_category_from_market_data(part, available_categories)
+            suggested = self._infer_category_lightweight(part, available_categories)
             category_id = None
             for cat in available_categories:
                 if str(cat.get("name", "")).strip().lower() == str(suggested).lower():
@@ -858,29 +1154,68 @@ Rules:
         }
         ai_base = getattr(settings, "AI_SERVICE_URL", "http://localhost:8001").rstrip("/")
         ai_url = f"{ai_base}/ai/chatbot-intent"
+        # Fail fast: unreachable microservice must not block the chatbot for 20+ seconds.
+        ai_timeout = getattr(settings, "CHATBOT_INTENT_AI_SERVICE_TIMEOUT", 4)
         try:
-            resp = requests.post(ai_url, json=payload, timeout=20)
+            ai_timeout = float(ai_timeout)
+        except (TypeError, ValueError):
+            ai_timeout = 4.0
+        ai_timeout = max(1.5, min(ai_timeout, 10.0))
+        try:
+            resp = requests.post(ai_url, json=payload, timeout=(2, ai_timeout))
             resp.raise_for_status()
-            return Response(resp.json(), status=resp.status_code)
+            data = resp.json()
+            avail = payload.get("context", {}).get("available_categories") or []
+            data = self._normalize_intent_payload(message, data, avail)
+            return Response(data, status=resp.status_code)
         except requests.RequestException as exc:
-            parsed, gemini_error = self._intent_via_db_gemini_keys(message, payload["context"])
+            # AI microservice failed: try Gemini intent generation, but cap the time.
+            context = payload.get("context") or {}
+            parsed = None
+            gemini_error = None
+
+            gemini_timeout = getattr(settings, "CHATBOT_INTENT_GEMINI_TIMEOUT", 20)
+            parsed, gemini_error = self._intent_via_db_gemini_keys_with_timeout(
+                message,
+                context,
+                gemini_timeout,
+            )
             if parsed:
+                avail = context.get("available_categories") or []
+                parsed = self._normalize_intent_payload(message, parsed, avail)
                 return Response(parsed, status=200)
-            context = payload["context"] or {}
             available_categories = context.get("available_categories") or []
             form = context.get("form") or {}
-            inferred_category = self._infer_category_from_market_data(message, available_categories)
+            inferred_category = self._infer_category_lightweight(message, available_categories)
+            message_normalized = " ".join(str(message).split()).strip()
+            first_words = " ".join(message_normalized.split()[:6]).strip()
+            fallback_title = str(form.get("title") or "").strip() or first_words or "Service Request"
+            if inferred_category and inferred_category not in fallback_title:
+                fallback_title = f"{inferred_category} - {fallback_title}"
+
+            # When Gemini is rate-limited/unavailable, we still want the UI/request to use
+            # rewritten fields (title/description) instead of raw user text.
+            category_for_text = inferred_category or "the customer's reported issue"
+            suggested_description = (
+                f"The customer reports: \"{message_normalized}\". "
+                f"The issue appears related to {category_for_text}. "
+                f"They need a provider to inspect the fault and perform the required repair(s)."
+            )
             has_title = bool(str(form.get("title") or "").strip())
             has_desc = bool(str(form.get("description") or "").strip() or message)
             has_cat = bool(inferred_category or str(form.get("category_id") or "").strip())
             can_prepare_draft = has_title and has_desc and has_cat
             fallback = {
-                "summary": message[:240],
+                "summary": message_normalized[:240],
                 "intent": "create_service_request",
                 "suggested_category": inferred_category,
                 "urgency": "medium",
                 "preferred_mode": str(form.get("mode") or "auto"),
-                "suggested_title": str(form.get("title") or "Service Request"),
+                "preferred_date_iso": "",
+                "suggested_provider_id": None,
+                "needs_confirmation": True,
+                "suggested_title": fallback_title,
+                "suggested_description": suggested_description,
                 "assistant_reply": "I captured your issue and prepared the next step options.",
                 "quick_options": self._build_default_options(inferred_category, available_categories, can_prepare_draft),
                 "issue_groups": self._extract_issue_groups(message, available_categories),

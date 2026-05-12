@@ -94,7 +94,7 @@ const AdminSettings = () => {
     };
 
     const handleSubmit = async (e) => {
-        e.preventDefault();
+        e?.preventDefault?.();
         setSaving(true);
         try {
             const res = await api.post('settings/config/', settings);

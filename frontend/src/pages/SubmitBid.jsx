@@ -5,6 +5,7 @@ import { DollarSign, Clock, FileText, Send, ArrowLeft, Loader2, Sparkles, Shield
 import { useSettings } from '../context/SettingsContext';
 import { motion } from 'framer-motion';
 import { useToast } from '../context/ToastContext';
+import { formatMoney } from '../utils/money';
 
 const SubmitBid = () => {
     const { settings } = useSettings();
@@ -108,7 +109,7 @@ const SubmitBid = () => {
                     <div>
                         <span className="text-sm text-slate-500 dark:text-slate-400">Customer Budget:</span>
                         <p className="font-bold text-green-600 dark:text-green-400">
-                            {request.budget ? `${settings.currency_symbol}${request.budget.toFixed(2)}` : 'Not specified'}
+                            {request.budget ? formatMoney(request.budget, settings.currency_symbol) : 'Not specified'}
                         </p>
                     </div>
                 </div>
@@ -121,7 +122,7 @@ const SubmitBid = () => {
                 {request.budget && (
                     <div className="p-4 bg-blue-50 dark:bg-blue-900/10 rounded-2xl border border-blue-100 dark:border-blue-800/50">
                         <p className="text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest mb-1">Customer Budget</p>
-                        <p className="text-3xl font-black text-blue-600 dark:text-blue-400">{settings.currency_symbol}{request.budget}</p>
+                        <p className="text-3xl font-black text-blue-600 dark:text-blue-400">{formatMoney(request.budget, settings.currency_symbol)}</p>
                     </div>
                 )}
 
@@ -129,7 +130,7 @@ const SubmitBid = () => {
                     <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                         <div className="flex items-center gap-2">
                             <DollarSign className="w-4 h-4" />
-                            Bid Amount ($)
+                            Bid Amount ({settings.currency_symbol})
                         </div>
                     </label>
                     <input

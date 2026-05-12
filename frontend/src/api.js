@@ -28,12 +28,31 @@ const api = axios.create({
     timeout: 20000, // 20 second timeout for heavier dashboard payloads
 });
 
+const PUBLIC_ENDPOINT_PATTERNS = [
+    /\/?users\/forgot_password\/?$/,
+    /\/?users\/reset_password\/?$/,
+    /\/?auth\/login\/?$/,
+    /\/?auth\/register\/?$/,
+];
+
+const isPublicEndpoint = (url = '') => PUBLIC_ENDPOINT_PATTERNS.some((pattern) => pattern.test(String(url)));
+
 // Request interceptor - add auth token
 api.interceptors.request.use(
     (config) => {
         const token = localStorage.getItem('token');
-        if (token) {
+        if (token && !isPublicEndpoint(config.url)) {
             config.headers.Authorization = `Token ${token}`;
+        }
+        // Default Content-Type is application/json; multipart needs boundary from the runtime.
+        if (config.data instanceof FormData) {
+            const headers = config.headers;
+            if (headers && typeof headers.delete === 'function') {
+                headers.delete('Content-Type');
+            } else if (headers) {
+                delete headers['Content-Type'];
+                delete headers['content-type'];
+            }
         }
         return config;
     },
@@ -47,6 +66,9 @@ api.interceptors.response.use(
     (response) => response,
     (error) => {
         if (error.response?.status === 401) {
+            if (isPublicEndpoint(error.config?.url)) {
+                return Promise.reject(error);
+            }
             // Token expired or invalid
             if (getDraft()) {
                 markResumeAfterAuth();
@@ -55,7 +77,10 @@ api.interceptors.response.use(
             window.location.href = '/login';
         } else if (error.response?.status === 403) {
             console.error('Forbidden: You do not have permission');
-        } else if (error.response?.status >= 500) {
+        } else if (
+            error.response?.status >= 500 &&
+            !(error.response.status === 503 && String(error.config?.url || '').includes('ai-analyze'))
+        ) {
             console.error('Server error occurred');
         } else if (error.code === 'ECONNABORTED') {
             console.error('Request timeout');

@@ -5,8 +5,8 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage
 from .state import AgentState
 
-# Initialize LLM
-llm_pro = ChatGoogleGenerativeAI(model="gemini-1.5-pro", google_api_key=os.getenv("GEMINI_API_KEY"))
+# Initialize LLM (allowed models: gemini-3-flash-preview, gemini-3.1-pro-preview)
+llm_pro = ChatGoogleGenerativeAI(model="gemini-3.1-pro-preview", google_api_key=os.getenv("GEMINI_API_KEY"))
 
 def encode_image(image_path):
     if not image_path or not os.path.exists(image_path):
@@ -16,7 +16,7 @@ def encode_image(image_path):
 
 def id_verification_node(state: AgentState):
     """
-    Node to verify ID authenticity and extract data using Gemini 1.5 Pro.
+    Node to verify ID authenticity and extract data using Gemini 3.1 Pro preview.
     """
     content = []
     for path in [state.get("id_front_path"), state.get("id_back_path")]:

@@ -10,18 +10,22 @@ import uuid
 import json
 import re
 import difflib
+import logging
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from google import genai
 from google.genai import types
 from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
 from PIL import Image
 from PIL import ImageOps
-from .gemini_client import resolve_gemini_model_name
+from .gemini_client import ordered_gemini_model_ids_for_call
 try:
     from pillow_heif import register_heif_opener
     register_heif_opener()
 except ImportError:
     print("Warning: pillow-heif not installed. HEIC support will be limited.")
+
+logger = logging.getLogger(__name__)
 
 class AIImageAnalysisView(APIView):
     """
@@ -98,6 +102,7 @@ class AIImageAnalysisView(APIView):
         return best
 
     def post(self, request, *args, **kwargs):
+        request_id = str(request.headers.get("X-Request-Id") or "").strip()[:80]
         if 'image' not in request.data:
             return Response({'error': 'No image data provided'}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -106,11 +111,24 @@ class AIImageAnalysisView(APIView):
         # --- SECURITY PROTOCOL: STEP 1 (File Analysis) ---
         # Allow larger uploads but downscale for AI processing.
         if image_file.size > 30 * 1024 * 1024:  # 30MB absolute cap
-            return Response({'error': 'Security Alert: File exceeds maximum size limit (30MB).'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {'error': 'Security Alert: File exceeds maximum size limit (30MB).', 'code': 'FILE_TOO_LARGE'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         
-        allowed_types = ['image/jpeg', 'image/png', 'image/heic', 'image/webp']
-        if image_file.content_type not in allowed_types:
-            return Response({'error': 'Security Alert: Unsupported or potentially malicious file format.'}, status=status.HTTP_400_BAD_REQUEST)
+        allowed_types = {
+            'image/jpeg', 'image/jpg', 'image/pjpeg',
+            'image/png', 'image/webp',
+            'image/heic', 'image/heif',
+        }
+        allowed_ext = {'.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif'}
+        content_type = str(image_file.content_type or '').strip().lower()
+        ext = os.path.splitext(image_file.name or '')[1].lower()
+        if content_type not in allowed_types and ext not in allowed_ext:
+            return Response(
+                {'error': 'Security Alert: Unsupported or potentially malicious file format.', 'code': 'UNSUPPORTED_FORMAT'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         # Save the file temporarily
         file_ext = os.path.splitext(image_file.name)[1]
@@ -155,43 +173,85 @@ class AIImageAnalysisView(APIView):
         valid_keys = system_settings.get_gemini_api_keys(prefer_env=True, sync_env_to_db=True)
         
         if not valid_keys:
-             # Fallback to simulation if no keys are configured
-             return self.simulated_response(category_qs, full_url)
+            if bool(getattr(settings, "AI_VISION_ALLOW_SIMULATED_FALLBACK", False)):
+                logger.warning("vision_analysis request_id=%s reason=no_api_keys fallback=simulated", request_id)
+                return self.simulated_response(category_qs, full_url)
+            return Response(
+                {'error': 'AI image analysis is currently unavailable. Please try again shortly.', 'code': 'AI_SERVICE_UNAVAILABLE'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
         ai_result = None
         last_error = None
+        timeout_s = float(getattr(settings, "AI_VISION_TIMEOUT_SECONDS", 18) or 18)
+        timeout_s = max(5.0, min(timeout_s, 40.0))
+        max_attempts = int(getattr(settings, "AI_VISION_RETRIES_PER_KEY", 2) or 2)
+        max_attempts = max(1, min(max_attempts, 3))
 
         try:
             ai_image_path = self._downscale_for_ai(full_path)
             pil_image = Image.open(ai_image_path)
-            
+
             for idx, key in enumerate(valid_keys, start=1):
-                try:
-                    print(f"Attempting Gemini analysis with key #{idx}")
-                    client = genai.Client(api_key=key)
-                    model_name = resolve_gemini_model_name(key)
-                    print(f"Using Gemini model: {model_name}")
-                    response = client.models.generate_content(
-                        model=model_name,
-                        contents=[prompt, pil_image],
-                        config=types.GenerateContentConfig(
-                            response_mime_type="application/json",
-                            temperature=0.1,
-                            top_p=0.9,
-                        ),
-                    )
-                    response_text = (response.text or "").strip()
-                    if response_text.startswith("```json"):
-                        response_text = response_text.split("```json", 1)[1].split("```", 1)[0].strip()
-                    elif response_text.startswith("```"):
-                        response_text = response_text.split("```", 1)[1].split("```", 1)[0].strip()
-                    ai_result = json.loads(response_text)
-                    print("AI Analysis Successful")
-                    break # Success! Match found.
-                except Exception as e:
-                    print(f"Key failed: {e}")
-                    last_error = e
-                    continue # Try next key
+                client = genai.Client(api_key=key)
+                model_ids = ordered_gemini_model_ids_for_call(key)
+                for attempt in range(1, max_attempts + 1):
+                    for model_name in model_ids:
+                        try:
+                            with ThreadPoolExecutor(max_workers=1) as executor:
+                                future = executor.submit(
+                                    client.models.generate_content,
+                                    model=model_name,
+                                    contents=[prompt, pil_image],
+                                    config=types.GenerateContentConfig(
+                                        response_mime_type="application/json",
+                                        temperature=0.1,
+                                        top_p=0.9,
+                                    ),
+                                )
+                                response = future.result(timeout=timeout_s)
+                            response_text = (response.text or "").strip()
+                            if response_text.startswith("```json"):
+                                response_text = response_text.split("```json", 1)[1].split("```", 1)[0].strip()
+                            elif response_text.startswith("```"):
+                                response_text = response_text.split("```", 1)[1].split("```", 1)[0].strip()
+                            ai_result = json.loads(response_text)
+                            logger.info(
+                                "vision_analysis request_id=%s outcome=success key_index=%s attempt=%s model=%s",
+                                request_id,
+                                idx,
+                                attempt,
+                                model_name,
+                            )
+                            break
+                        except FuturesTimeoutError as te:
+                            last_error = te
+                            logger.warning(
+                                "vision_analysis request_id=%s outcome=timeout key_index=%s attempt=%s model=%s timeout_s=%s",
+                                request_id,
+                                idx,
+                                attempt,
+                                model_name,
+                                timeout_s,
+                            )
+                            continue
+                        except Exception as e:
+                            last_error = e
+                            logger.warning(
+                                "vision_analysis request_id=%s outcome=retryable_error key_index=%s attempt=%s model=%s error=%s",
+                                request_id,
+                                idx,
+                                attempt,
+                                model_name,
+                                str(e),
+                            )
+                            continue
+                    else:
+                        continue
+                    break
+                else:
+                    continue
+                break
 
             if not ai_result:
                 raise last_error or Exception("All API keys failed or were exhausted.")
@@ -231,11 +291,24 @@ class AIImageAnalysisView(APIView):
             
             return Response(final_response, status=status.HTTP_200_OK)
 
+        except FuturesTimeoutError:
+            logger.error("vision_analysis request_id=%s outcome=failed code=AI_TIMEOUT", request_id)
+            return Response(
+                {'error': 'AI analysis timed out. Please retry in a moment.', 'code': 'AI_TIMEOUT'},
+                status=status.HTTP_504_GATEWAY_TIMEOUT,
+            )
         except Exception as e:
-            print(f"Critical AI Error: {e}")
-            # Fallback to simulation on critical failure so app doesn't break
-            fallback_categories = category_qs or list(Category.objects.filter(is_active=True).only("id", "name", "description"))
-            return self.simulated_response(fallback_categories, full_url)
+            logger.error("vision_analysis request_id=%s outcome=failed code=AI_SERVICE_UNAVAILABLE error=%s", request_id, str(e))
+            if bool(getattr(settings, "AI_VISION_ALLOW_SIMULATED_FALLBACK", False)):
+                fallback_categories = category_qs or list(Category.objects.filter(is_active=True).only("id", "name", "description"))
+                return self.simulated_response(fallback_categories, full_url)
+            payload = {
+                'error': 'AI image analysis is currently unavailable. Please try again.',
+                'code': 'AI_SERVICE_UNAVAILABLE',
+            }
+            if getattr(settings, 'DEBUG', False):
+                payload['debug_hint'] = f'{type(e).__name__}: {str(e)[:500]}'
+            return Response(payload, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         finally:
             # Cleanup temp file? Maybe keep it for the actual request creation if used.
             # For now, we leave it. A cron job should clean temp/ folder.

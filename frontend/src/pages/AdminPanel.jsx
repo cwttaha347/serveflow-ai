@@ -9,6 +9,7 @@ import { useToast } from '../context/ToastContext';
 import { useNavigate } from 'react-router-dom';
 import { useSettings } from '../context/SettingsContext';
 import { motion } from 'framer-motion';
+import { formatMoney } from '../utils/money';
 
 const AdminPanel = () => {
     const { settings } = useSettings();
@@ -120,7 +121,7 @@ const AdminPanel = () => {
                     { label: 'Client Base', value: stats.users, icon: Users, color: 'blue' },
                     { label: 'Service Force', value: stats.providers, icon: Shield, color: 'emerald' },
                     { label: 'Active Jobs', value: stats.jobs, icon: Activity, color: 'purple' },
-                    { label: 'Net Revenue', value: `${settings.currency_symbol}${stats.revenue.toLocaleString()}`, icon: DollarSign, color: 'amber' }
+                    { label: 'Net Revenue', value: formatMoney(stats.revenue, settings), icon: DollarSign, color: 'amber' }
                 ].map((s, i) => (
                     <motion.div
                         key={i}

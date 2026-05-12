@@ -4,6 +4,7 @@ import api from '../api';
 import { Clock, DollarSign, Calendar, ChevronRight, MessageSquare, Star, Loader2, Filter, Search, Trash2, CheckCircle } from 'lucide-react';
 import { useSettings } from '../context/SettingsContext';
 import { useToast } from '../context/ToastContext';
+import { formatMoney } from '../utils/money';
 
 const MyBids = () => {
     const { settings } = useSettings();
@@ -33,7 +34,7 @@ const MyBids = () => {
         if (!confirm('Are you sure you want to withdraw this bid?')) return;
 
         try {
-            await api.delete(`bids / ${bidId} /withdraw/`);
+            await api.delete(`bids/${bidId}/withdraw/`);
             success('Bid withdrawn successfully');
             fetchMyBids();
         } catch (err) {
@@ -114,7 +115,7 @@ const MyBids = () => {
                                     <div className="flex items-center gap-1">
                                         <DollarSign className="w-4 h-4 text-green-600 dark:text-green-400" />
                                         <span className="font-bold text-slate-900 dark:text-white">
-                                            {settings.currency_symbol}{bid.amount}
+                                            {formatMoney(bid.amount, settings)}
                                         </span>
                                     </div>
                                 </div>
@@ -138,7 +139,7 @@ const MyBids = () => {
 
                             <div className="flex gap-2">
                                 <button
-                                    onClick={() => navigate(`/ dashboard / requests / ${bid.request} `)}
+                                    onClick={() => navigate(`/dashboard/requests/${bid.request}`)}
                                     className="flex-1 px-4 py-2 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors text-sm"
                                 >
                                     View Request

@@ -97,7 +97,7 @@ const Login = () => {
         setError('');
 
         try {
-            await api.post('users/', {
+            const reg = await api.post('users/', {
                 username: registerData.username,
                 email: registerData.email,
                 password: registerData.password,
@@ -107,11 +107,12 @@ const Login = () => {
                 role: registerData.role,
                 category_ids: registerData.role === 'provider' ? registerData.category_ids : []
             });
-            try {
-                await api.post('auth/request-otp/', { email: registerData.email });
-            } catch (otpErr) {
-                console.warn('OTP request failed after signup', otpErr);
+            if (reg.data?.token) {
+                localStorage.setItem('token', reg.data.token);
+                localStorage.setItem('userRole', reg.data.role || '');
+                localStorage.setItem('userId', String(reg.data.id || ''));
             }
+            // OTP email is sent once from the server on user creation.
             localStorage.setItem('verificationEmail', registerData.email);
             success('Account created! Verify your email first.');
             navigate('/verify-otp', { state: { email: registerData.email } });

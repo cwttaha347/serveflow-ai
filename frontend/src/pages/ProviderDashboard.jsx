@@ -12,6 +12,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import ChatInterface from '../components/ChatInterface';
 import { useWebSocket } from '../context/WebSocketContext';
+import { formatMoney } from '../utils/money';
 
 const ProviderDashboard = () => {
     const navigate = useNavigate();
@@ -73,30 +74,30 @@ const ProviderDashboard = () => {
     const handleAcceptJob = async (jobId) => {
         try {
             await api.post(`jobs/${jobId}/accept/`);
-            success('Mission accepted! Protocol initiated.');
+            success('Job accepted.');
             fetchProviderData();
         } catch (error) {
-            showError('Failed to initiate protocol');
+            showError('Failed to accept job');
         }
     };
 
     const handleStartJob = async (jobId) => {
         try {
             await api.post(`jobs/${jobId}/start/`);
-            success('Execution protocol started. Tactical timer active.');
+            success('Job started.');
             fetchProviderData();
         } catch (error) {
-            showError('Failed to start mission execution');
+            showError('Failed to start job');
         }
     };
 
     const handleCompleteJob = async (jobId) => {
         try {
             await api.post(`jobs/${jobId}/complete/`);
-            success('Mission accomplished! Extraction sequence complete.');
+            success('Job marked complete.');
             fetchProviderData();
         } catch (error) {
-            showError('Failed to report mission completion');
+            showError('Failed to complete job');
         }
     };
 
@@ -138,7 +139,7 @@ const ProviderDashboard = () => {
         return (
             <div className="flex flex-col items-center justify-center h-[60vh] space-y-4">
                 <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-                <p className="text-slate-500 font-black uppercase tracking-widest animate-pulse">Initializing Command...</p>
+                <p className="text-slate-500 font-semibold">Loading dashboard…</p>
             </div>
         );
     }
@@ -152,18 +153,18 @@ const ProviderDashboard = () => {
         >
             <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                    <h1 className="text-3xl sm:text-4xl font-black text-slate-900 dark:text-white tracking-tight">Execution Hub</h1>
-                    <p className="text-slate-500 dark:text-slate-400 font-medium">Managing active missions and performance metrics</p>
+                    <h1 className="text-3xl sm:text-4xl font-black text-slate-900 dark:text-white tracking-tight">Provider dashboard</h1>
+                    <p className="text-slate-500 dark:text-slate-400 font-medium">Your jobs, messages, and earnings</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
                     <div className="px-4 py-2 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-800 rounded-xl flex items-center gap-2">
                         <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`} />
                         <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-slate-400">
-                            {isConnected ? 'Live Sync Active' : 'Sync Offline'}
+                            {isConnected ? 'Live updates' : 'Offline'}
                         </span>
                     </div>
                     <button 
-                        onClick={() => { fetchProviderData(); success('Hub synchronized with command center.'); }}
+                        onClick={() => { fetchProviderData(); success('Dashboard refreshed.'); }}
                         className="p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-all flex items-center gap-2"
                         title="Force Synchronize"
                     >
@@ -171,10 +172,10 @@ const ProviderDashboard = () => {
                         <span className="text-[10px] font-black uppercase tracking-widest">Refresh</span>
                     </button>
                     <div className="w-full sm:w-auto px-6 py-3 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl">
-                        <p className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-widest leading-none mb-1">Status</p>
+                        <p className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-widest leading-none mb-1">Availability</p>
                         <div className="text-emerald-600 dark:text-emerald-400 font-bold leading-none flex items-center gap-2">
                             <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
-                            Online & Ready
+                            Available for work
                         </div>
                     </div>
                 </div>
@@ -183,10 +184,10 @@ const ProviderDashboard = () => {
             {/* Stats */}
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6">
                 {[
-                    { label: 'Total Missions', value: stats.total_jobs, icon: Briefcase, color: 'blue' },
-                    { label: 'Successful Ends', value: stats.completed, icon: CheckCircle, color: 'emerald' },
-                    { label: 'Total Revenue', value: `${settings.currency_symbol}${stats.earnings.toLocaleString()}`, icon: DollarSign, color: 'blue', action: () => navigate('earnings') },
-                    { label: 'Trust Rating', value: stats.rating, icon: Star, color: 'amber', action: () => navigate('profile') }
+                    { label: 'Total jobs', value: stats.total_jobs, icon: Briefcase, color: 'blue' },
+                    { label: 'Completed', value: stats.completed, icon: CheckCircle, color: 'emerald' },
+                    { label: 'Earnings', value: formatMoney(stats.earnings, settings), icon: DollarSign, color: 'blue', action: () => navigate('earnings') },
+                    { label: 'Rating', value: stats.rating, icon: Star, color: 'amber', action: () => navigate('profile') }
                 ].map((s, i) => (
                     <motion.div
                         key={i}
@@ -275,9 +276,9 @@ const ProviderDashboard = () => {
             {/* Jobs List */}
             <motion.div variants={item} className="space-y-6">
                 <div className="flex items-center justify-between pl-4">
-                    <h2 className="text-xs font-black text-slate-400 uppercase tracking-[0.3em]">Available Missions</h2>
+                    <h2 className="text-xs font-black text-slate-400 uppercase tracking-[0.3em]">Open jobs</h2>
                     <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 px-3 py-1 rounded-full border border-blue-200 dark:border-blue-800">
-                        {jobs.length} POTENTIAL TASKS
+                        {jobs.length} listed
                     </span>
                 </div>
 
@@ -287,7 +288,7 @@ const ProviderDashboard = () => {
                             <div className="w-20 h-20 bg-slate-50 dark:bg-slate-900/50 rounded-full flex items-center justify-center mx-auto mb-4">
                                 <Zap className="w-10 h-10 text-slate-300" />
                             </div>
-                            <p className="text-slate-500 font-bold">Scanning for new opportunities...</p>
+                            <p className="text-slate-500 font-bold">No open jobs right now.</p>
                         </div>
                     ) : (
                         jobs.map((job) => (
@@ -325,7 +326,7 @@ const ProviderDashboard = () => {
                                             </span>
                                             <span className="flex items-center gap-2">
                                                 <Clock className="w-4 h-4 text-purple-500" />
-                                                Initiated: {new Date(job.created_at).toLocaleDateString()}
+                                                Posted: {new Date(job.created_at).toLocaleDateString()}
                                             </span>
                                         </div>
                                     </div>
@@ -338,7 +339,7 @@ const ProviderDashboard = () => {
                                                 onClick={() => handleAcceptJob(job.id)}
                                                 className="w-full sm:w-auto px-6 sm:px-8 py-4 bg-emerald-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:scale-105 active:scale-95 shadow-xl shadow-emerald-500/20 transition-all"
                                             >
-                                                Initialize
+                                                Accept job
                                             </button>
                                             <button
                                                 onClick={() => handleDeclineJob(job.id)}

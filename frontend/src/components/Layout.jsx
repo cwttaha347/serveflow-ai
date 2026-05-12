@@ -9,6 +9,7 @@ import { useSettings } from '../context/SettingsContext';
 import { useAuth } from '../context/AuthContext';
 import ThemeToggle from './ThemeToggle';
 import { useWebSocket } from '../context/WebSocketContext';
+import { getNotificationTarget } from '../utils/notificationNavigation';
 
 const Layout = () => {
     const { settings } = useSettings();
@@ -256,13 +257,16 @@ const Layout = () => {
                                         <button
                                             key={item.id}
                                             className={`w-full text-left rounded-xl px-3 py-2 border flex items-start gap-3 transition-all hover:scale-[1.02] ${item.is_read ? 'border-slate-200 dark:border-slate-700 opacity-70' : 'border-blue-300 dark:border-blue-700 bg-blue-50/50 dark:bg-blue-900/10 shadow-sm'}`}
-                                            onClick={() => {
-                                                markNotificationRead(item.id).then(loadNotifications);
-                                                if (item.type === 'chat_message' && item.payload?.job_id) {
-                                                    // For chat messages, navigation might depend on role, 
-                                                    // but usually dashboard handles redirects.
-                                                    navigate(userRole === 'provider' ? `/dashboard/provider/jobs/${item.payload.job_id}` : `/dashboard/requests/${item.payload.request_id || 0}`);
-                                                }
+                                            onClick={async () => {
+                                                await markNotificationRead(item.id);
+                                                await loadNotifications();
+                                                const target = getNotificationTarget({
+                                                    type: item.type,
+                                                    payload: item.payload,
+                                                    userRole,
+                                                });
+                                                setNotifOpen(false);
+                                                if (target) navigate(target);
                                             }}
                                         >
                                             <div className={`mt-1 p-1.5 rounded-lg shrink-0 ${item.type === 'chat_message' ? 'bg-blue-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'}`}>

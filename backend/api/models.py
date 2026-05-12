@@ -141,6 +141,8 @@ class Provider(models.Model):
     categories = models.ManyToManyField(Category, related_name='providers')
     skills = models.JSONField(default=list, blank=True)
     onboarding_completed = models.BooleanField(default=False)
+    stripe_connect_account_id = models.CharField(max_length=255, blank=True)
+    stripe_connect_onboarding_complete = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
@@ -314,6 +316,19 @@ class Request(models.Model):
     images = models.JSONField(default=list, blank=True)
     preferred_date = models.DateTimeField(null=True, blank=True)
     budget = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    escrow_status = models.CharField(
+        max_length=32,
+        choices=[
+            ('not_required', 'Not required'),
+            ('awaiting_payment', 'Awaiting payment'),
+            ('funded', 'Funded'),
+            ('released', 'Released'),
+        ],
+        default='not_required',
+    )
+    escrow_checkout_session_id = models.CharField(max_length=255, blank=True)
+    escrow_payment_intent_id = models.CharField(max_length=255, blank=True)
+    escrow_transfer_id = models.CharField(max_length=255, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
@@ -687,12 +702,15 @@ class SystemSettings(models.Model):
         - Else: DB first, then ENV
 
         Supported ENV formats:
+        - GEMINI_API_KEY (single key, same as core settings)
         - GEMINI_API_KEY_1 .. GEMINI_API_KEY_5
         - GEMINI_API_KEYS (comma / whitespace separated)
 
         If sync_env_to_db=True, any GEMINI_API_KEY_N found in env will populate
-        gemini_api_key_N in DB if the DB field is blank.
+        gemini_api_key_N in DB if the DB field is blank. A lone GEMINI_API_KEY
+        syncs to gemini_api_key_1 when that field is blank.
         """
+        legacy_gemini_key = (os.environ.get("GEMINI_API_KEY") or "").strip()
         env_keys = []
 
         # Enumerated keys
@@ -718,6 +736,9 @@ class SystemSettings(models.Model):
                 if not (getattr(self, field) or "").strip():
                     setattr(self, field, val)
                     changed = True
+            if legacy_gemini_key and not (getattr(self, "gemini_api_key_1") or "").strip():
+                self.gemini_api_key_1 = legacy_gemini_key
+                changed = True
             if changed:
                 self.save(update_fields=[f"gemini_api_key_{i}" for i in range(1, 6)])
 
@@ -729,10 +750,14 @@ class SystemSettings(models.Model):
 
         ordered = []
         if prefer_env:
+            if legacy_gemini_key:
+                ordered.append(legacy_gemini_key)
             ordered.extend([v for _, v in env_keys])
             ordered.extend([v for _, v in db_keys])
         else:
             ordered.extend([v for _, v in db_keys])
+            if legacy_gemini_key:
+                ordered.append(legacy_gemini_key)
             ordered.extend([v for _, v in env_keys])
 
         # De-dupe while keeping order

@@ -25,7 +25,7 @@ def get_resilient_connection():
         timeout=10
     )
 
-def send_resilient_mail(subject, message, recipient_list, html_message=None):
+def send_resilient_mail(subject, message, recipient_list, html_message=None, log_context=None):
     """
     Wrapper around EmailMultiAlternatives using resilient connection.
     """
@@ -33,15 +33,29 @@ def send_resilient_mail(subject, message, recipient_list, html_message=None):
     sys_settings = SystemSettings.get_settings()
     from_email = sys_settings.from_email or settings.DEFAULT_FROM_EMAIL
     
+    context = log_context or {}
     try:
         connection = get_resilient_connection()
+        backend_name = getattr(connection, "__class__", type(connection)).__name__
         msg = EmailMultiAlternatives(subject, message, from_email, recipient_list, connection=connection)
         if html_message:
             msg.attach_alternative(html_message, "text/html")
         msg.send()
+        logger.info(
+            "resilient_email outcome=sent backend=%s recipients=%s flow=%s request_id=%s",
+            backend_name,
+            len(recipient_list or []),
+            context.get("flow", ""),
+            context.get("request_id", ""),
+        )
         return True
     except Exception as e:
-        logger.error(f"Resilient email failed: {e}")
+        logger.error(
+            "resilient_email outcome=failed flow=%s request_id=%s error=%s",
+            context.get("flow", ""),
+            context.get("request_id", ""),
+            str(e),
+        )
         return False
 
 def send_new_request_notification(request_obj):

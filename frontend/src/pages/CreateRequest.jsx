@@ -7,10 +7,13 @@ import {
 } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 import api from '../api';
+import { useSettings } from '../context/SettingsContext';
+import { formatMoney } from '../utils/money';
 
 const CreateRequest = () => {
     const navigate = useNavigate();
-    const { success, error: showError } = useToast();
+    const { success, error: showError, warning: showWarning } = useToast();
+    const { settings } = useSettings();
     const [step, setStep] = useState(1);
     const [loading, setLoading] = useState(false);
     const [formData, setFormData] = useState({
@@ -18,7 +21,8 @@ const CreateRequest = () => {
         title: '',
         description: '',
         preferred_date: '',
-        images: []
+        images: [],
+        budget: ''
     });
 
     const [recommendations, setRecommendations] = useState([]);
@@ -30,7 +34,60 @@ const CreateRequest = () => {
     // Image AI States
     const [scanning, setScanning] = useState(false);
     const [scanProgress, setScanProgress] = useState(0);
+    /** True when backend used simulated vision (no Gemini / fallback)—not real image AI. */
+    const [visionSimulated, setVisionSimulated] = useState(false);
     const fileInputRef = useRef(null);
+
+    const mapVisualScanError = (err) => {
+        const status = err?.response?.status;
+        const payload = err?.response?.data || {};
+        const code = String(payload.code || '').toUpperCase();
+        const backendMsg = payload.error || payload.detail;
+
+        if (code === 'IRRELEVANT_CONTENT') {
+            return backendMsg || 'Image is not a maintenance issue. Capture the damaged area only.';
+        }
+        if (code === 'UNSUPPORTED_FORMAT') {
+            return backendMsg || 'Unsupported image format. Please use JPG, PNG, WEBP, HEIC, or HEIF.';
+        }
+        if (code === 'FILE_TOO_LARGE') {
+            return backendMsg || 'Image is too large. Please capture a smaller photo.';
+        }
+        if (code === 'AI_TIMEOUT') {
+            return backendMsg || 'AI analysis timed out. Please retry in a moment.';
+        }
+        if (code === 'AI_SERVICE_UNAVAILABLE') {
+            return backendMsg || 'AI service is temporarily unavailable. Please try again shortly.';
+        }
+        if (status === 413) {
+            return 'Image is too large for upload. Please retake with lower resolution.';
+        }
+        if (status === 415) {
+            const detail = String(backendMsg || payload.detail || '').toLowerCase();
+            if (detail.includes('media') || detail.includes('content-type') || detail.includes('multipart')) {
+                return 'Upload failed: the server did not receive a valid multipart file. Retry or describe the issue manually.';
+            }
+            return backendMsg || payload.detail || 'Unsupported image format. Try another photo.';
+        }
+        if (status === 503) {
+            return (
+                backendMsg ||
+                payload.detail ||
+                'AI vision is unavailable. Use manual description below, or try again in a moment.'
+            );
+        }
+        if (!err?.response) {
+            const msg = String(err?.message || '');
+            if (err?.code === 'ECONNABORTED' || /timeout/i.test(msg)) {
+                return 'AI analysis took too long. Try a smaller photo, wait a moment, and try again.';
+            }
+            if (err?.code === 'ERR_NETWORK') {
+                return "Couldn't reach the server. Check your connection, or verify the app's API URL and HTTPS settings.";
+            }
+            return 'Network issue while uploading image. Check connection and try again.';
+        }
+        return backendMsg || 'Visual analysis failed. Please retry or use manual entry.';
+    };
 
     const handleImageUpload = async (e) => {
         const file = e.target.files[0];
@@ -57,8 +114,12 @@ const CreateRequest = () => {
         formDataPayload.append('image', file);
 
         try {
+            const requestId = `vision-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
             const res = await api.post('requests/ai-analyze/', formDataPayload, {
-                headers: { 'Content-Type': 'multipart/form-data' }
+                headers: {
+                    'X-Request-Id': requestId,
+                },
+                timeout: 180000,
             });
 
             clearInterval(interval);
@@ -67,6 +128,8 @@ const CreateRequest = () => {
             setTimeout(() => {
                 setScanning(false);
                 const analysis = res.data.analysis;
+                const simulated = Boolean(res.data.is_simulated);
+                setVisionSimulated(simulated);
 
                 if (!analysis) {
                     showError("Visual analysis returned no data.");
@@ -82,12 +145,16 @@ const CreateRequest = () => {
                     images: analysis.image_url ? [analysis.image_url] : prev.images
                 }));
 
-                setDiagnosis({ summary: analysis.summary });
+                setDiagnosis({ summary: analysis.summary, simulated });
                 setStep(2); // Jump to verification
-                if (!analysis.category_id) {
+                if (simulated) {
+                    showWarning(
+                        'Demo mode: Gemini vision is not configured (or fallback is on). Title and description are placeholders—edit them and pick the right category.'
+                    );
+                } else if (!analysis.category_id) {
                     showError("AI couldn't confidently pick a category from the image. Please select the correct category to continue.");
                 } else {
-                    success("Vision Analysis Complete: Protocol Secured.");
+                    success('Vision analysis complete. Review and adjust below.');
                 }
             }, 800);
 
@@ -95,11 +162,7 @@ const CreateRequest = () => {
             clearInterval(interval);
             setScanning(false);
             console.error(err);
-            if (err.response?.data?.code === 'SAFETY_BLOCK') {
-                showError("Content Security Policy: Image rejected due to safety violations (Mock).");
-            } else {
-                showError("Visual Analysis Failed: Use manual entry.");
-            }
+            showError(mapVisualScanError(err));
         }
     };
 
@@ -111,6 +174,7 @@ const CreateRequest = () => {
         setDiagnosing(true);
         try {
             const res = await api.post('categories/diagnose/', { description: formData.description });
+            setVisionSimulated(false);
             setDiagnosis(res.data);
             if (res.data.category_id) {
                 setFormData(prev => ({ ...prev, category: res.data.category_id }));
@@ -161,7 +225,11 @@ const CreateRequest = () => {
         }
     };
 
-    const prevStep = () => step > 1 && setStep(step - 1);
+    const prevStep = () => {
+        if (step <= 1) return;
+        if (step === 2) setVisionSimulated(false);
+        setStep(step - 1);
+    };
 
     const fetchSnapshot = async () => {
         setFetchingRecs(true);
@@ -186,21 +254,47 @@ const CreateRequest = () => {
     const handleSubmit = async (mode = 'manual', providerId = null) => {
         setLoading(true);
         try {
-            await api.post('requests/flow/decision/', {
+            const floor = snapshot?.analysis?.budget_floor;
+            let budgetRecommended = snapshot?.analysis?.budget_recommended ?? null;
+            const raw = (formData.budget || '').trim();
+            if (raw) {
+                const n = Number(raw);
+                if (!Number.isFinite(n) || n <= 0) {
+                    showError('Enter a valid positive budget amount.');
+                    setLoading(false);
+                    return;
+                }
+                if (floor != null && n < Number(floor)) {
+                    showError(`Budget must be at least ${formatMoney(floor, settings)} (minimum to attract providers).`);
+                    setLoading(false);
+                    return;
+                }
+                budgetRecommended = n;
+            }
+            const res = await api.post('requests/flow/decision/', {
                 category_id: Number(formData.category),
                 title: formData.title,
                 description: formData.description,
                 preferred_date: formData.preferred_date,
                 mode,
                 selected_provider: providerId,
-                budget_recommended: snapshot?.analysis?.budget_recommended || null
+                budget_recommended: budgetRecommended
             });
-
-            success('Protocol Initiated Successfully.');
+            if (res.data?.checkout_url) {
+                success('Complete payment to publish your request.');
+                window.location.assign(res.data.checkout_url);
+                return;
+            }
+            success('Request created successfully.');
             navigate('/dashboard');
         } catch (error) {
             console.error('Error creating request:', error);
-            showError('Failed to initiate protocol.');
+            const d = error.response?.data;
+            if (d?.budget_floor != null) {
+                showError(`Budget must be at least ${formatMoney(d.budget_floor, settings)}.`);
+            } else {
+                showError(d?.error || d?.detail || 'Failed to create request.');
+            }
         } finally {
             setLoading(false);
         }
@@ -304,7 +398,7 @@ const CreateRequest = () => {
                                     className="group relative p-8 rounded-3xl bg-blue-600 cursor-pointer overflow-hidden transition-all hover:scale-[1.02] shadow-[0_0_40px_rgba(37,99,235,0.3)] hover:shadow-[0_0_60px_rgba(37,99,235,0.5)]"
                                 >
                                     <div className="absolute inset-0 bg-gradient-to-br from-blue-500 to-indigo-600 opacity-100"></div>
-                                    <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20"></div>
+                                    <div className="absolute inset-0 opacity-20 bg-white/[0.03] pointer-events-none" aria-hidden />
                                     <div className="relative z-10 flex flex-col items-center text-center space-y-4">
                                         <div className="w-20 h-20 bg-white/20 rounded-full flex items-center justify-center backdrop-blur-sm group-hover:scale-110 transition-transform duration-500">
                                             <Camera className="w-10 h-10 text-white" />
@@ -358,17 +452,43 @@ const CreateRequest = () => {
                     {step === 2 && (
                         <div className="space-y-8 animate-in fade-in zoom-in-95 duration-500">
                             <div className="text-center mb-8">
-                                <h2 className="text-3xl font-black text-white mb-2">Protocol Verified</h2>
-                                <p className="text-slate-400">Please review the AI-generated assessment.</p>
+                                <h2 className="text-3xl font-black text-white mb-2">
+                                    {visionSimulated ? 'Review your request' : 'Protocol Verified'}
+                                </h2>
+                                <p className="text-slate-400">
+                                    {visionSimulated
+                                        ? 'Your photo was uploaded. Replace the placeholder text below—real vision AI was not used.'
+                                        : 'Please review the AI-generated assessment.'}
+                                </p>
                             </div>
 
-                            <div className="p-6 rounded-2xl bg-blue-500/10 border border-blue-500/30 flex items-start gap-4 backdrop-blur-sm">
-                                <div className="w-12 h-12 rounded-xl bg-blue-600 flex items-center justify-center shrink-0">
+                            {visionSimulated && (
+                                <div className="p-4 rounded-2xl bg-amber-500/15 border border-amber-500/40 text-amber-100/95 text-sm leading-relaxed">
+                                    <strong className="text-amber-200">Demo / fallback mode.</strong>{' '}
+                                    Configure <code className="text-amber-50 bg-black/30 px-1.5 py-0.5 rounded">GEMINI_API_KEY</code> on the
+                                    backend for real image analysis, or enter details manually on step 1.
+                                </div>
+                            )}
+
+                            <div
+                                className={`p-6 rounded-2xl flex items-start gap-4 backdrop-blur-sm border ${visionSimulated
+                                    ? 'bg-amber-500/10 border-amber-500/35'
+                                    : 'bg-blue-500/10 border-blue-500/30'
+                                    }`}
+                            >
+                                <div
+                                    className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${visionSimulated ? 'bg-amber-600' : 'bg-blue-600'
+                                        }`}
+                                >
                                     <ScanLine className="w-6 h-6 text-white" />
                                 </div>
                                 <div>
-                                    <h3 className="text-xl font-bold text-blue-400 mb-1">System Diagnosis</h3>
-                                    <p className="text-slate-300 italic">"{diagnosis?.summary || "We've analyzed your situation."}"</p>
+                                    <h3 className={`text-xl font-bold mb-1 ${visionSimulated ? 'text-amber-400' : 'text-blue-400'}`}>
+                                        {visionSimulated ? 'Placeholder summary (not from AI)' : 'System Diagnosis'}
+                                    </h3>
+                                    <p className="text-slate-300 italic">
+                                        "{diagnosis?.summary || "We've analyzed your situation."}"
+                                    </p>
                                 </div>
                             </div>
 
@@ -385,7 +505,9 @@ const CreateRequest = () => {
                                 </div>
 
                                 <div>
-                                    <label className="block text-sm font-bold text-slate-400 uppercase tracking-widest mb-3">AI-Generated Description</label>
+                                    <label className="block text-sm font-bold text-slate-400 uppercase tracking-widest mb-3">
+                                        {visionSimulated ? 'Description (edit—placeholder in demo mode)' : 'AI-Generated Description'}
+                                    </label>
                                     <textarea
                                         value={formData.description}
                                         onChange={(e) => setFormData({ ...formData, description: e.target.value })}
@@ -457,11 +579,33 @@ const CreateRequest = () => {
                                     </div>
                                     <div className="p-4 rounded-xl bg-slate-900/70 border border-slate-700">
                                         <p className="text-xs text-slate-400 uppercase">Budget Range</p>
-                                        <p className="text-xl font-black text-blue-300">${snapshot.analysis.budget_range.min} - ${snapshot.analysis.budget_range.max}</p>
+                                        <p className="text-xl font-black text-blue-300">{formatMoney(snapshot.analysis.budget_range.min, settings)} - {formatMoney(snapshot.analysis.budget_range.max, settings)}</p>
                                     </div>
                                     <div className="p-4 rounded-xl bg-slate-900/70 border border-slate-700">
                                         <p className="text-xs text-slate-400 uppercase">AI Recommended Mode</p>
                                         <p className="text-xl font-black text-blue-300 capitalize">{snapshot.mode_recommendation?.recommended_mode || 'manual'}</p>
+                                    </div>
+                                </div>
+                            )}
+
+                            {snapshot?.analysis && (
+                                <div className="p-4 rounded-xl bg-slate-900/70 border border-slate-700 space-y-3">
+                                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest">Your budget (optional)</label>
+                                    <p className="text-xs text-slate-500">
+                                        Suggested {snapshot.analysis.budget_recommended != null ? `${formatMoney(snapshot.analysis.budget_recommended, settings)}` : '—'}
+                                        {snapshot.analysis.budget_floor != null ? ` · minimum ${formatMoney(snapshot.analysis.budget_floor, settings)}` : ''}
+                                    </p>
+                                    <div className="relative">
+                                        <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
+                                        <input
+                                            type="number"
+                                            min={snapshot.analysis.budget_floor != null ? Number(snapshot.analysis.budget_floor) : undefined}
+                                            step="0.01"
+                                            value={formData.budget}
+                                            onChange={(e) => setFormData({ ...formData, budget: e.target.value })}
+                                            className="w-full pl-12 pr-6 py-3 bg-slate-900/50 border border-slate-700 rounded-xl text-white focus:border-blue-500 outline-none"
+                                            placeholder="Leave blank to use suggested budget"
+                                        />
                                     </div>
                                 </div>
                             )}

@@ -4,7 +4,7 @@ from rest_framework.authtoken.views import obtain_auth_token
 from .views import (
     UserViewSet, ProfileViewSet, CategoryViewSet, ProviderViewSet,
     RequestViewSet, JobViewSet, InvoiceViewSet, ReviewViewSet, DisputeViewSet, BidViewSet, AuditLogViewSet,
-    MessageViewSet, CustomAuthToken, StripeCheckoutView, StripeWebhookView, StripeConfirmView,
+    MessageViewSet, CustomAuthToken, StripeCheckoutView, StripeWebhookView, StripeConfirmView, StripeStatusView,
     VerificationQueueView, VerificationQueueClaimView, VerificationQueueDecisionView,
     NotificationFeedView, NotificationReadView, WorkerViewSet, WorkerLocationPingViewSet,
     RevenueSplitRuleViewSet, ProviderLedgerEntryViewSet, ProviderPayoutViewSet, ProviderAnalyticsView
@@ -68,6 +68,7 @@ urlpatterns = [
     path('payments/stripe-checkout/', StripeCheckoutView.as_view(), name='stripe-checkout'),
     path('stripe/webhook/', StripeWebhookView.as_view(), name='stripe-webhook'),
     path('payments/stripe-confirm/', StripeConfirmView.as_view(), name='stripe-confirm'),
+    path('payments/stripe-status/', StripeStatusView.as_view(), name='stripe-status'),
 
     path('', include(router.urls)),
 ]

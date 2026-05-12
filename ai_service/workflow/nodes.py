@@ -7,13 +7,13 @@ from PIL import Image
 import base64
 import io
 
-# Initialize LLM
-llm_pro = ChatGoogleGenerativeAI(model="gemini-1.5-pro", google_api_key=os.getenv("GEMINI_API_KEY"))
-llm_flash = ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=os.getenv("GEMINI_API_KEY"))
+# Initialize LLM (allowed models: gemini-3-flash-preview, gemini-3.1-pro-preview)
+llm_pro = ChatGoogleGenerativeAI(model="gemini-3.1-pro-preview", google_api_key=os.getenv("GEMINI_API_KEY"))
+llm_flash = ChatGoogleGenerativeAI(model="gemini-3-flash-preview", google_api_key=os.getenv("GEMINI_API_KEY"))
 
 def analyze_request_node(state: AgentState):
     """
-    Node to analyze the customer request using Gemini 1.5 Pro.
+    Node to analyze the customer request using Gemini 3.1 Pro preview.
     """
     description = state.get("description", "")
     image_paths = state.get("image_paths", [])

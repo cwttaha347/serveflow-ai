@@ -12,6 +12,7 @@ import ChatInterface from '../components/ChatInterface';
 import { useTheme } from '../context/ThemeContext';
 import ThemeToggle from '../components/ThemeToggle';
 import { useWebSocket } from '../context/WebSocketContext';
+import { formatMoney } from '../utils/money';
 
 const MyRequests = () => {
     const { settings } = useSettings();
@@ -51,14 +52,28 @@ const MyRequests = () => {
     };
 
     const handleDelete = async (id) => {
-        if (window.confirm('Are you sure you want to cancel this request? This cannot be undone.')) {
+        if (!window.confirm('Cancel this request? If a provider already accepted or started, you may need support/dispute instead.')) {
+            return;
+        }
+        try {
+            // Preferred cancel semantics (status transition), not a hard delete.
+            await api.post(`requests/${id}/cancel/`);
+            success('Request cancelled successfully.');
+            fetchRequests();
+        } catch (error) {
+            const code = error?.response?.data?.code;
+            if (error?.response?.status === 409 || code === 'CANNOT_CANCEL_ACTIVE_JOB') {
+                showError('This request is already in progress. You cannot cancel it here.');
+                return;
+            }
+            // Backward compatibility: if cancel endpoint doesn’t exist yet, fall back.
             try {
-                await api.delete(`requests / ${ id }/`);
-success('Request cancelled successfully.');
-fetchRequests();
-            } catch (error) {
-    showError('Failed to cancel request');
-}
+                await api.delete(`requests/${id}/`);
+                success('Request cancelled successfully.');
+                fetchRequests();
+            } catch {
+                showError('Failed to cancel request');
+            }
         }
     };
 
@@ -199,26 +214,12 @@ return (
                                         {request.budget && (
                                             <div className="flex items-center gap-2 text-[11px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-widest">
                                                 <DollarSign className="w-4 h-4" />
-                                                Budget: ${request.budget}
+                                                Budget: {formatMoney(request.budget, settings.currency_symbol)}
                                             </div>
                                         )}
                                     </div>
 
-                                    {request.ai_summary?.summary && (
-                                        <div className="p-6 bg-blue-600/5 dark:bg-blue-400/5 border border-blue-600/10 rounded-3xl group/ai relative overflow-hidden">
-                                            <div className="relative z-10 flex items-start gap-4">
-                                                <div className="p-2.5 bg-blue-600 text-white rounded-xl shadow-lg shadow-blue-600/20 shrink-0">
-                                                    <Brain className="w-5 h-5" />
-                                                </div>
-                                                <div>
-                                                    <h4 className="text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest mb-1">AI Summary</h4>
-                                                    <p className="text-sm font-bold text-slate-700 dark:text-slate-300 leading-relaxed">
-                                                        {request.ai_summary.summary}
-                                                    </p>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
+                                    {/* No separate AI summary block: title/description are already rewritten if AI is enabled. */}
                                 </div>
 
                                 <div className="flex flex-col sm:flex-row lg:flex-col gap-3 w-full lg:w-auto min-w-0 lg:min-w-[200px]">

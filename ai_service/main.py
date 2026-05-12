@@ -314,6 +314,9 @@ async def chatbot_intent(input_data: ChatbotIntentInput):
             "suggested_category": "",
             "urgency": "medium",
             "preferred_mode": "auto",
+            "preferred_date_iso": "",
+            "suggested_provider_id": None,
+            "needs_confirmation": True,
             "suggested_title": "Service Request",
             "assistant_reply": "I captured your issue. Select the most relevant category so I can prepare an accurate draft.",
             "quick_options": category_options,
@@ -328,13 +331,17 @@ Analyze the latest user message and return ONLY valid JSON:
 {{
   "summary": "short summary",
   "intent": "create_service_request | ask_question | clarify",
-  "suggested_category": "category name",
+  "suggested_category": "category name from available_categories when possible",
   "urgency": "low | medium | high",
   "preferred_mode": "manual | auto | broadcast",
+  "preferred_date_iso": "optional ISO datetime if user gave a date/time",
+  "suggested_provider_id": "optional provider id only if explicitly available in context",
+  "needs_confirmation": true,
   "suggested_title": "short action title",
+  "suggested_description": "2-4 clear sentences for providers; must describe the SAME trade as suggested_category",
   "assistant_reply": "professional concise next-step response",
   "quick_options": [
-    {{"label": "short CTA", "value": "raw value", "action": "set_mode | set_urgency | prepare_draft | choose_category"}}
+    {{"label": "short CTA", "value": "raw value", "action": "set_mode | set_urgency | set_preferred_date | set_selected_provider | prepare_draft | choose_category"}}
   ]
 }}
 User message: "{text}"
@@ -344,6 +351,8 @@ Rules:
 - Do not repeat the same question if context already contains that slot.
 - Keep options contextual and minimal (2-5).
 - If enough info is present to proceed, include a "prepare_draft" option.
+- Never classify obvious plumbing (sink, faucet, drain, leak, toilet, pipe) as Electrical, or vice versa.
+- suggested_description must not invent a different trade than the user described.
 """
         response = client.models.generate_content(
             model=model_name,
@@ -359,6 +368,13 @@ Rules:
         parsed = json.loads(output)
         parsed["suggested_category"] = parsed.get("suggested_category") or ""
         parsed["suggested_title"] = parsed.get("suggested_title") or "Service Request"
+        parsed["suggested_description"] = (parsed.get("suggested_description") or parsed.get("summary") or text[:500]).strip()
+        parsed["preferred_date_iso"] = str(parsed.get("preferred_date_iso") or "").strip()
+        try:
+            parsed["suggested_provider_id"] = int(parsed.get("suggested_provider_id")) if parsed.get("suggested_provider_id") not in (None, "") else None
+        except (TypeError, ValueError):
+            parsed["suggested_provider_id"] = None
+        parsed["needs_confirmation"] = bool(parsed.get("needs_confirmation", True))
         if not isinstance(parsed.get("quick_options"), list):
             parsed["quick_options"] = [
                 {"label": "Prepare draft", "value": "prepare_draft", "action": "prepare_draft"},

@@ -82,11 +82,7 @@ const Register = () => {
                 localStorage.setItem('userId', String(reg.data.id || ''));
             }
 
-            try {
-                await api.post('auth/request-otp/', { email: formData.email });
-            } catch (otpErr) {
-                console.warn('OTP request after signup failed; use Resend on the verification page.', otpErr);
-            }
+            // OTP email is sent once from the server on user creation (do not call request-otp here — it would send a second code).
             localStorage.setItem('verificationEmail', formData.email);
             success('Registration successful. Verify your email to continue.');
             window.location.assign('/verify-otp');

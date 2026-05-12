@@ -4,10 +4,13 @@ import api from '../api';
 import { MapPin, Calendar, Clock, Phone, MessageSquare, CheckCircle, Play, AlertCircle } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 import ChatInterface from '../components/ChatInterface';
+import { useSettings } from '../context/SettingsContext';
+import { formatMoney } from '../utils/money';
 
 const ProviderJobDetails = () => {
     const { id } = useParams();
     const navigate = useNavigate();
+    const { settings } = useSettings();
     const [job, setJob] = useState(null);
     const [loading, setLoading] = useState(true);
     const [activeChat, setActiveChat] = useState(false);
@@ -84,7 +87,9 @@ const ProviderJobDetails = () => {
                     </div>
                     <div className="text-right">
                         <p className="text-sm text-slate-500 dark:text-slate-400">Estimated Value</p>
-                        <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">${job.request?.budget || job.price || '0.00'}</p>
+                        <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">
+                            {formatMoney(job.request?.budget || job.price || 0, settings.currency_symbol)}
+                        </p>
                     </div>
                 </div>
 

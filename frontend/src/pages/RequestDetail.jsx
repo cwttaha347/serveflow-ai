@@ -9,14 +9,19 @@ import {
 } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 import { useTheme } from '../context/ThemeContext';
+import { useSettings } from '../context/SettingsContext';
 import ThemeToggle from '../components/ThemeToggle';
 import ChatInterface from '../components/ChatInterface';
+import { formatMoney } from '../utils/money';
+import { useAuth } from '../context/AuthContext';
 
 const RequestDetail = () => {
     const { id } = useParams();
     const navigate = useNavigate();
     const { theme } = useTheme();
     const { error: showError, success: showSuccess } = useToast();
+    const { user } = useAuth();
+    const { settings } = useSettings();
 
     const [request, setRequest] = useState(null);
     const [job, setJob] = useState(null);
@@ -27,7 +32,7 @@ const RequestDetail = () => {
 
     const fetchRequestDetails = async () => {
         try {
-            const res = await api.get(`/requests/${id}`);
+            const res = await api.get(`/requests/${id}/`);
             setRequest(res.data.request || null);
             setJob(res.data.job || null);
             setHasReview(res.data.hasReview || false);
@@ -138,31 +143,23 @@ const RequestDetail = () => {
                                 </section>
 
                                 <section>
-                                    <h3 className="text-[10px] uppercase font-black tracking-[0.2em] text-slate-400 mb-4">Date & Time</h3>
+                                    <h3 className="text-[10px] uppercase font-black tracking-[0.2em] text-slate-400 mb-4">Preferred date</h3>
                                     <div className="flex items-center gap-4 text-slate-700 dark:text-slate-200">
                                         <div className="p-3 bg-purple-600/10 rounded-2xl">
                                             <Calendar className="w-6 h-6 text-purple-600" />
                                         </div>
-                                        <span className="font-bold">{new Date(request.preferred_date).toLocaleString()}</span>
+                                        <span className="font-bold">
+                                            {request.preferred_date
+                                                ? new Date(request.preferred_date).toLocaleString()
+                                                : 'Not scheduled'}
+                                        </span>
                                     </div>
                                 </section>
                             </div>
                         </div>
                     </div>
 
-                    {request.ai_summary?.summary && (
-                        <div className="glass-card p-8 rounded-[2.5rem] bg-blue-600/5 dark:bg-blue-400/5 border border-blue-600/10 flex items-start gap-4">
-                            <div className="p-3 bg-blue-600 text-white rounded-2xl shadow-lg shadow-blue-600/20 shrink-0">
-                                <Brain className="w-6 h-6" />
-                            </div>
-                            <div>
-                                <h4 className="text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest mb-1">AI Insights</h4>
-                                <p className="text-lg font-bold text-slate-700 dark:text-slate-300 italic leading-relaxed">
-                                    "{request.ai_summary.summary}"
-                                </p>
-                            </div>
-                        </div>
-                    )}
+                    {/* No separate AI summary block: title/description are already rewritten if AI is enabled. */}
                 </div>
 
                 {/* Sidebar Column */}
@@ -277,7 +274,9 @@ const RequestDetail = () => {
                                         </div>
                                         <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Max Budget</span>
                                     </div>
-                                    <span className="text-xl font-black text-slate-900 dark:text-white">${request.budget}</span>
+                                    <span className="text-xl font-black text-slate-900 dark:text-white">
+                                        {formatMoney(request.budget, settings.currency_symbol)}
+                                    </span>
                                 </div>
                             )}
 
@@ -285,12 +284,12 @@ const RequestDetail = () => {
                                 <div className={`p-6 rounded-[2rem] shadow-xl ${job.status === 'completed' ? 'bg-emerald-600 text-white shadow-emerald-500/20' : 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-slate-900/10'}`}>
                                     <div className="flex justify-between items-center mb-1">
                                         <span className="text-[10px] font-black uppercase tracking-widest opacity-80">
-                                            {localStorage.getItem('userRole') === 'provider' ? 'Net Earnings' : 'Total Price'}
+                                            {user?.role === 'provider' ? 'Net Earnings' : 'Total Price'}
                                         </span>
                                         {job.status === 'completed' ? <CheckCircle2 className="w-4 h-4" /> : <ShieldCheck className="w-4 h-4" />}
                                     </div>
                                     <p className="text-4xl font-black tracking-tight">
-                                        ${Number(localStorage.getItem('userRole') === 'provider' ? (job.provider_earnings || 0) : (request.budget || 0)).toFixed(2)}
+                                        {formatMoney(user?.role === 'provider' ? (job.provider_earnings || 0) : (request.budget || 0), settings.currency_symbol)}
                                     </p>
                                     <p className="text-[10px] font-bold uppercase tracking-widest mt-2 opacity-80">
                                         {job.status === 'completed' ? 'Payment Released' : 'Payment Pre-Authorized'}
