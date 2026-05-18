@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, Form
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from google import genai
@@ -6,9 +6,16 @@ from google.genai import types
 from PIL import Image
 import io
 import os
-from workflow.verification_graph import verification_workflow
 import tempfile
+import threading
 from gemini_client import resolve_gemini_model_name
+from key_provider import (
+    clear_request_gemini_api_key,
+    gemini_keys_configured,
+    get_gemini_api_key,
+    refresh_keys_from_backend,
+    set_request_gemini_api_key,
+)
 
 # Initialize FastAPI
 app = FastAPI(title="AI Service for ServeFlow")
@@ -22,7 +29,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+
+@app.middleware("http")
+async def gemini_key_middleware(request: Request, call_next):
+    header_key = request.headers.get("x-gemini-api-key")
+    if header_key:
+        set_request_gemini_api_key(header_key)
+    try:
+        return await call_next(request)
+    finally:
+        clear_request_gemini_api_key()
+
+
+@app.on_event("startup")
+def warm_gemini_keys_from_backend():
+    threading.Thread(target=lambda: refresh_keys_from_backend(force=True), daemon=True).start()
 
 # Models
 class RequestAnalysisInput(BaseModel):
@@ -52,7 +73,12 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy", "service": "ai"}
+    return {
+        "status": "healthy",
+        "service": "ai",
+        "gemini_configured": gemini_keys_configured(),
+        "key_source": "admin_settings_db",
+    }
 
 @app.post("/ai/analyze-request")
 async def analyze_request(input_data: RequestAnalysisInput):
@@ -60,7 +86,8 @@ async def analyze_request(input_data: RequestAnalysisInput):
     Analyze a service request using Gemini LLM
     Returns: structured summary, urgency level, estimated complexity
     """
-    if not GEMINI_API_KEY:
+    api_key = get_gemini_api_key()
+    if not api_key:
         return {
             "summary": f"Service request for {input_data.category}",
             "urgency": "medium",
@@ -71,8 +98,8 @@ async def analyze_request(input_data: RequestAnalysisInput):
         }
     
     try:
-        client = genai.Client(api_key=GEMINI_API_KEY)
-        model_name = resolve_gemini_model_name(GEMINI_API_KEY)
+        client = genai.Client(api_key=api_key)
+        model_name = resolve_gemini_model_name(api_key)
         prompt = f"""
         Analyze this service request and provide a structured analysis:
         
@@ -110,7 +137,8 @@ async def analyze_image(file: UploadFile = File(...)):
     Analyze uploaded image using Gemini Vision
     Returns: description, detected objects, suggested actions
     """
-    if not GEMINI_API_KEY:
+    api_key = get_gemini_api_key()
+    if not api_key:
         return {
             "description": "Image uploaded successfully",
             "detected_objects": ["general object"],
@@ -124,8 +152,8 @@ async def analyze_image(file: UploadFile = File(...)):
         image_data = await file.read()
         image = Image.open(io.BytesIO(image_data))
         
-        client = genai.Client(api_key=GEMINI_API_KEY)
-        model_name = resolve_gemini_model_name(GEMINI_API_KEY)
+        client = genai.Client(api_key=api_key)
+        model_name = resolve_gemini_model_name(api_key)
         prompt = """
         Analyze this image in the context of a service request.
         Describe what you see, identify any issues or problems visible,
@@ -152,7 +180,8 @@ async def summarize_dispute(input_data: DisputeInput):
     Summarize a dispute using Gemini LLM
     Returns: summary, severity, recommended_action
     """
-    if not GEMINI_API_KEY:
+    api_key = get_gemini_api_key()
+    if not api_key:
         return {
             "summary": "Dispute requires review",
             "severity": "medium",
@@ -162,8 +191,8 @@ async def summarize_dispute(input_data: DisputeInput):
         }
     
     try:
-        client = genai.Client(api_key=GEMINI_API_KEY)
-        model_name = resolve_gemini_model_name(GEMINI_API_KEY)
+        client = genai.Client(api_key=api_key)
+        model_name = resolve_gemini_model_name(api_key)
         prompt = f"""
         Analyze this service dispute and provide recommendations:
         
@@ -196,7 +225,8 @@ async def autocomplete_skill(input_data: AutocompleteInput):
     """
     Real-time professional expansion of provider descriptions using Gemini 1.5 Flash.
     """
-    if not GEMINI_API_KEY:
+    api_key = get_gemini_api_key()
+    if not api_key:
         return {
             "inline_completion": " with professional expertise and quality assurance.",
             "full_description": f"I provide professional {input_data.user_input} services with a focus on reliability and customer satisfaction.",
@@ -207,8 +237,8 @@ async def autocomplete_skill(input_data: AutocompleteInput):
         }
 
     try:
-        client = genai.Client(api_key=GEMINI_API_KEY)
-        model_name = resolve_gemini_model_name(GEMINI_API_KEY)
+        client = genai.Client(api_key=api_key)
+        model_name = resolve_gemini_model_name(api_key)
         prompt = f"""You are ServeFlow's professional profile writer for skilled tradespeople.
 A provider has typed the following partial skill description:
 "{input_data.user_input}"
@@ -246,7 +276,8 @@ async def provider_skill_suggestions(input_data: ProviderSkillSuggestionInput):
     if not categories:
         raise HTTPException(status_code=400, detail="At least one category is required")
 
-    if not GEMINI_API_KEY:
+    api_key = get_gemini_api_key()
+    if not api_key:
         fallback_map = {
             "Plumbing": ["Leak Detection", "Pipe Repair", "Drain Cleaning", "Fixture Installation"],
             "Electrical": ["Wiring", "Circuit Troubleshooting", "Panel Upgrade", "Safety Inspection"],
@@ -262,8 +293,8 @@ async def provider_skill_suggestions(input_data: ProviderSkillSuggestionInput):
         return {"categories": categories, "skills": deduped[:20], "source": "fallback"}
 
     try:
-        client = genai.Client(api_key=GEMINI_API_KEY)
-        model_name = resolve_gemini_model_name(GEMINI_API_KEY)
+        client = genai.Client(api_key=api_key)
+        model_name = resolve_gemini_model_name(api_key)
         prompt = f"""You generate practical skill tags for service providers.
 Given categories: {", ".join(categories)}
 Return ONLY valid JSON:
@@ -301,7 +332,8 @@ async def chatbot_intent(input_data: ChatbotIntentInput):
     context = input_data.context or {}
     available_categories = context.get("available_categories") or []
 
-    if not GEMINI_API_KEY:
+    api_key = get_gemini_api_key()
+    if not api_key:
         category_options = []
         for c in available_categories[:6]:
             cid = str(c.get("id", "")).strip()
@@ -324,8 +356,8 @@ async def chatbot_intent(input_data: ChatbotIntentInput):
         }
 
     try:
-        client = genai.Client(api_key=GEMINI_API_KEY)
-        model_name = resolve_gemini_model_name(GEMINI_API_KEY)
+        client = genai.Client(api_key=api_key)
+        model_name = resolve_gemini_model_name(api_key)
         prompt = f"""You are ServeFlow's autonomous request chatbot engine.
 Analyze the latest user message and return ONLY valid JSON:
 {{
@@ -347,9 +379,12 @@ Analyze the latest user message and return ONLY valid JSON:
 User message: "{text}"
 Context: {context}
 Rules:
-- Use available_categories from Context when suggesting category options.
+- User may write in English, Roman Urdu (Urdu in Latin script), or mixed language — infer category from meaning.
+- Pick suggested_category from available_categories when symptoms are clear; do not leave it empty for obvious trades.
+- Ceiling damage or falling stones/debris (e.g. pathar gir, chat kharaab, ceiling stones) → Roofing when listed.
+- Use available_categories from Context when suggesting category options; do not duplicate the same choose_category chip.
 - Do not repeat the same question if context already contains that slot.
-- Keep options contextual and minimal (2-5).
+- Keep options contextual and minimal (2-5); omit choose_category chips when suggested_category is already set.
 - If enough info is present to proceed, include a "prepare_draft" option.
 - Never classify obvious plumbing (sink, faucet, drain, leak, toilet, pipe) as Electrical, or vice versa.
 - suggested_description must not invent a different trade than the user described.
@@ -396,7 +431,8 @@ async def verify_provider_bundle(
     """
     Zero-admin verification orchestration via LangGraph.
     """
-    if not GEMINI_API_KEY:
+    api_key = get_gemini_api_key()
+    if not api_key:
         return {
             "trust_score": 85.0,
             "id_results": {"authenticity_score": 0.9, "is_authentic": True},
@@ -422,6 +458,8 @@ async def verify_provider_bundle(
     }
 
     try:
+        from workflow.verification_graph import verification_workflow
+
         # Run LangGraph
         initial_state = {
             **paths,
@@ -430,7 +468,7 @@ async def verify_provider_bundle(
             "next_step": "verify_id",
             "is_complete": False
         }
-        
+
         # Note: In a production app, we would use async invoke
         # For simplicity in this demo, we use the graph's invoke
         result = verification_workflow.invoke(initial_state)
@@ -452,7 +490,8 @@ async def analyze_request_full(
     Cognitive Analysis of a service request.
     Pillar A Ingestion point.
     """
-    if not GEMINI_API_KEY:
+    api_key = get_gemini_api_key()
+    if not api_key:
         return {
             "title": "Emergency Leak Repair",
             "category": "Plumbing",
@@ -464,8 +503,8 @@ async def analyze_request_full(
         }
 
     try:
-        client = genai.Client(api_key=GEMINI_API_KEY)
-        model_name = resolve_gemini_model_name(GEMINI_API_KEY)
+        client = genai.Client(api_key=api_key)
+        model_name = resolve_gemini_model_name(api_key)
         prompt = f"""You are ServeFlow's Chief Dispatcher. 
 Analyze the following customer problem description and provide a technical dispatch report.
 Description: "{description}"

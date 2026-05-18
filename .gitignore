@@ -21,6 +21,7 @@ wheels/
 .installed.cfg
 *.egg
 .env
+credentials.txt
 .venv
 venv/
 ENV/

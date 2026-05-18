@@ -3,6 +3,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.parsers import MultiPartParser, FormParser
 from django.conf import settings
+from .ai_credentials import get_gemini_api_keys
 from .models import Category, SystemSettings
 import os
 import time
@@ -110,10 +111,15 @@ class AIImageAnalysisView(APIView):
         
         # --- SECURITY PROTOCOL: STEP 1 (File Analysis) ---
         # Allow larger uploads but downscale for AI processing.
-        if image_file.size > 30 * 1024 * 1024:  # 30MB absolute cap
+        max_upload = int(getattr(settings, 'UPLOAD_MAX_BYTES', 10 * 1024 * 1024))
+        if image_file.size > max_upload:
+            max_mb = max_upload // (1024 * 1024)
             return Response(
-                {'error': 'Security Alert: File exceeds maximum size limit (30MB).', 'code': 'FILE_TOO_LARGE'},
-                status=status.HTTP_400_BAD_REQUEST
+                {
+                    'error': f'Photo exceeds the {max_mb}MB limit. Large photos are compressed automatically in the app—retry or use a smaller image.',
+                    'code': 'FILE_TOO_LARGE',
+                },
+                status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             )
         
         allowed_types = {
@@ -168,9 +174,8 @@ class AIImageAnalysisView(APIView):
         - Prefer "General" when uncertain instead of guessing a specific category.
         """
 
-        # 3. Get API Keys & Rotate
-        system_settings = SystemSettings.get_settings()
-        valid_keys = system_settings.get_gemini_api_keys(prefer_env=True, sync_env_to_db=True)
+        # 3. Get API Keys from admin settings (DB-first)
+        valid_keys = get_gemini_api_keys()
         
         if not valid_keys:
             if bool(getattr(settings, "AI_VISION_ALLOW_SIMULATED_FALLBACK", False)):

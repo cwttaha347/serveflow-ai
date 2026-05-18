@@ -1,5 +1,7 @@
 @import "tailwindcss";
-@import "tailwindcss/theme" layer(theme);
+@config "../tailwind.config.js";
+
+@custom-variant dark (&:is(.dark *, .dark));
 
 /* Custom keyframes */
 @keyframes blob {
@@ -44,10 +46,6 @@
   }
 }
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
 :root {
   /* Global responsive scale tokens */
   --sf-font-base: clamp(14px, 0.28vw + 13px, 16px);
@@ -76,8 +74,7 @@
 /* Custom Utilities */
 @layer utilities {
   .glass {
-    background-color: #353535c7;
-    @apply backdrop-blur-xl border border-white/20 dark:border-slate-800/50 shadow-xl;
+    @apply bg-white/70 dark:bg-slate-900/60 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/50 shadow-xl;
   }
 
   .glass-card {

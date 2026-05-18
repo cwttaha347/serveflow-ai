@@ -2,10 +2,14 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
 import { useSettings } from '../context/SettingsContext';
+import { formatMoney } from '../utils/money';
 import { DollarSign, TrendingDown, TrendingUp, Eye } from 'lucide-react';
+import { useToast } from '../context/ToastContext';
+import { getErrorMessage } from '../utils/apiErrors';
 
 const AdminCommissions = () => {
     const { settings } = useSettings();
+    const { error: showError } = useToast();
     const navigate = useNavigate();
     const [jobs, setJobs] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -48,7 +52,7 @@ const AdminCommissions = () => {
 
             setJobs(completedJobs);
         } catch (error) {
-            console.error('Error fetching commission data:', error);
+            showError(getErrorMessage(error, 'Failed to load commission data'));
         } finally {
             setLoading(false);
         }
@@ -66,17 +70,17 @@ const AdminCommissions = () => {
                 <div className="bg-gradient-to-br from-blue-500 to-blue-600 p-6 rounded-xl text-white">
                     <DollarSign className="w-8 h-8 mb-3 opacity-80" />
                     <p className="text-sm opacity-80">Total Revenue</p>
-                    <p className="text-3xl font-bold mt-1">{settings.currency_symbol}{stats.totalRevenue.toFixed(2)}</p>
+                    <p className="text-3xl font-bold mt-1">{formatMoney(stats.totalRevenue, settings)}</p>
                 </div>
                 <div className="bg-gradient-to-br from-green-500 to-green-600 p-6 rounded-xl text-white">
                     <TrendingUp className="w-8 h-8 mb-3 opacity-80" />
                     <p className="text-sm opacity-80">Platform Commission</p>
-                    <p className="text-3xl font-bold mt-1">{settings.currency_symbol}{stats.totalCommission.toFixed(2)}</p>
+                    <p className="text-3xl font-bold mt-1">{formatMoney(stats.totalCommission, settings)}</p>
                 </div>
                 <div className="bg-gradient-to-br from-purple-500 to-purple-600 p-6 rounded-xl text-white">
                     <TrendingDown className="w-8 h-8 mb-3 opacity-80" />
                     <p className="text-sm opacity-80">Provider Earnings</p>
-                    <p className="text-3xl font-bold mt-1">{settings.currency_symbol}{stats.totalProviderEarnings.toFixed(2)}</p>
+                    <p className="text-3xl font-bold mt-1">{formatMoney(stats.totalProviderEarnings, settings)}</p>
                 </div>
                 <div className="bg-gradient-to-br from-amber-500 to-amber-600 p-6 rounded-xl text-white">
                     <DollarSign className="w-8 h-8 mb-3 opacity-80" />
@@ -129,13 +133,13 @@ const AdminCommissions = () => {
                                                 {job.provider?.user?.username || 'N/A'}
                                             </td>
                                             <td className="px-6 py-4 font-semibold text-slate-900 dark:text-slate-100">
-                                                {settings.currency_symbol}{total.toFixed(2)}
+                                                {formatMoney(total, settings)}
                                             </td>
                                             <td className="px-6 py-4 text-green-600 dark:text-green-400 font-medium">
                                                 {settings.currency_symbol}{earnings.toFixed(2)}
                                             </td>
                                             <td className="px-6 py-4 text-blue-600 dark:text-blue-400 font-bold">
-                                                {settings.currency_symbol}{commission.toFixed(2)}
+                                                {formatMoney(commission, settings)}
                                             </td>
                                             <td className="px-6 py-4 text-slate-600 dark:text-slate-300">
                                                 {commissionRate}%

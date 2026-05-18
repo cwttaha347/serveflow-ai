@@ -1,26 +1,44 @@
 import json
 import os
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage
+from gemini_client import get_llm_pro
 from .state import AgentState
-from PIL import Image
 import base64
-import io
 
-# Initialize LLM (allowed models: gemini-3-flash-preview, gemini-3.1-pro-preview)
-llm_pro = ChatGoogleGenerativeAI(model="gemini-3.1-pro-preview", google_api_key=os.getenv("GEMINI_API_KEY"))
-llm_flash = ChatGoogleGenerativeAI(model="gemini-3-flash-preview", google_api_key=os.getenv("GEMINI_API_KEY"))
+MOCK_STRUCTURED_DATA = {
+    "title": "Service Request",
+    "category": "General",
+    "subcategory": "General Service",
+    "severity_score": 5,
+    "complexity": "MEDIUM",
+    "urgency_flag": False,
+    "estimated_duration_hours": 2.0,
+    "required_skills": ["general"],
+    "summary_for_provider": "Gemini API key not configured - mock analysis.",
+    "visual_damage_assessment": None,
+    "materials_likely_needed": [],
+}
+
 
 def analyze_request_node(state: AgentState):
     """
     Node to analyze the customer request using Gemini 3.1 Pro preview.
     """
+    llm_pro = get_llm_pro()
+    if llm_pro is None:
+        return {
+            "raw_ai_response": json.dumps(MOCK_STRUCTURED_DATA),
+            "structured_data": dict(MOCK_STRUCTURED_DATA),
+            "next_step": "complete",
+            "is_complete": True,
+        }
+
     description = state.get("description", "")
     image_paths = state.get("image_paths", [])
-    
+
     # Prepare content
     content = [{"type": "text", "text": description}]
-    
+
     for img_path in image_paths:
         if os.path.exists(img_path):
             with open(img_path, "rb") as f:
@@ -50,21 +68,17 @@ Required JSON schema:
 }"""
 
     try:
-        message = HumanMessage(content=content)
-        # We can't easily pass a system prompt to ChatGoogleGenerativeAI easily in all versions 
-        # but we can prepended it
-        full_prompt = f"{system_prompt}\n\nUser Request: {description}"
         res = llm_pro.invoke([HumanMessage(content=content), HumanMessage(content=system_prompt)])
-        
+
         raw_text = res.content
         # Clean up any markdown code blocks if AI ignored "No markdown" instruction
         if "```json" in raw_text:
             raw_text = raw_text.split("```json")[1].split("```")[0].strip()
         elif "```" in raw_text:
             raw_text = raw_text.split("```")[1].split("```")[0].strip()
-            
+
         structured = json.loads(raw_text)
-        
+
         return {
             "raw_ai_response": raw_text,
             "structured_data": structured,
@@ -77,6 +91,7 @@ Required JSON schema:
             "next_step": "retry",
             "retry_count": state.get("retry_count", 0) + 1
         }
+
 
 def finalize_node(state: AgentState):
     return {"is_complete": True}

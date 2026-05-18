@@ -3,9 +3,17 @@ from __future__ import annotations
 
 import hashlib
 import os
-from typing import Optional
+from typing import TYPE_CHECKING
 
 from google import genai
+
+from key_provider import get_gemini_api_key
+
+if TYPE_CHECKING:
+    from langchain_google_genai import ChatGoogleGenerativeAI
+
+_LLM_PRO_BY_FP: dict[str, "ChatGoogleGenerativeAI"] = {}
+_LLM_FLASH_BY_FP: dict[str, "ChatGoogleGenerativeAI"] = {}
 
 GEMINI_ALLOWED_MODEL_IDS = (
     "gemini-3-flash-preview",
@@ -18,6 +26,38 @@ _MODEL_BY_KEY_FP: dict[str, str] = {}
 
 def _key_fp(api_key: str) -> str:
     return hashlib.sha256((api_key or "").encode()).hexdigest()[:32]
+
+
+def get_llm_pro() -> "ChatGoogleGenerativeAI | None":
+    api_key = get_gemini_api_key()
+    if not api_key:
+        return None
+    fp = _key_fp(api_key)
+    if fp in _LLM_PRO_BY_FP:
+        return _LLM_PRO_BY_FP[fp]
+    from langchain_google_genai import ChatGoogleGenerativeAI
+
+    _LLM_PRO_BY_FP[fp] = ChatGoogleGenerativeAI(
+        model="gemini-3.1-pro-preview",
+        google_api_key=api_key,
+    )
+    return _LLM_PRO_BY_FP[fp]
+
+
+def get_llm_flash() -> "ChatGoogleGenerativeAI | None":
+    api_key = get_gemini_api_key()
+    if not api_key:
+        return None
+    fp = _key_fp(api_key)
+    if fp in _LLM_FLASH_BY_FP:
+        return _LLM_FLASH_BY_FP[fp]
+    from langchain_google_genai import ChatGoogleGenerativeAI
+
+    _LLM_FLASH_BY_FP[fp] = ChatGoogleGenerativeAI(
+        model="gemini-3-flash-preview",
+        google_api_key=api_key,
+    )
+    return _LLM_FLASH_BY_FP[fp]
 
 
 def _normalize_model_id(raw: str) -> str:

@@ -1,43 +1,80 @@
 import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     LayoutDashboard, Users, FileText, Settings, LogOut, Menu, X,
-    Briefcase, Shield, ClipboardList, Star, DollarSign, Bell, MessageSquare
+    Briefcase, Shield, ClipboardList, Star, DollarSign, Bell, MessageSquare,
+    User, ChevronDown
 } from 'lucide-react';
 import { useSettings } from '../context/SettingsContext';
 import { useAuth } from '../context/AuthContext';
 import ThemeToggle from './ThemeToggle';
 import { useWebSocket } from '../context/WebSocketContext';
 import { getNotificationTarget } from '../utils/notificationNavigation';
+import UserAvatar from './UserAvatar';
+import api from '../api';
 
 const Layout = () => {
     const { settings } = useSettings();
-    const { user } = useAuth();
+    const { user, logout } = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [notifOpen, setNotifOpen] = useState(false);
+    const [profileOpen, setProfileOpen] = useState(false);
     const [notifItems, setNotifItems] = useState([]);
+    const [profileMeta, setProfileMeta] = useState(null);
+    const profileRef = useRef(null);
     const userRole = user?.role || 'user';
-    const { totalUnread, refreshUnreadSummary, markNotificationRead } = useWebSocket();
-
-    const handleLogout = () => {
-        localStorage.removeItem('token');
-        localStorage.removeItem('userRole');
-        localStorage.removeItem('userId');
-        navigate('/login');
-    };
+    const { totalUnread, markNotificationRead, feedVersion } = useWebSocket();
 
     const loadNotifications = async () => {
         try {
-            const { default: api } = await import('../api');
             const res = await api.get('notifications/feed/');
             setNotifItems(res.data.items || []);
         } catch (e) {
             console.error('Failed to load notifications', e);
         }
     };
+
+    const loadProfileMeta = async () => {
+        try {
+            const res = await api.get('users/me/');
+            setProfileMeta(res.data);
+        } catch (e) {
+            if (import.meta.env.DEV) {
+                console.warn('Failed to load profile meta', e);
+            }
+        }
+    };
+
+    useEffect(() => {
+        if (user?.id) {
+            loadProfileMeta();
+        }
+    }, [user?.id]);
+
+    useEffect(() => {
+        const onProfileUpdated = () => loadProfileMeta();
+        window.addEventListener('serveflow:profile-updated', onProfileUpdated);
+        return () => window.removeEventListener('serveflow:profile-updated', onProfileUpdated);
+    }, []);
+
+    useEffect(() => {
+        if (feedVersion > 0) {
+            loadNotifications();
+        }
+    }, [feedVersion]);
+
+    useEffect(() => {
+        const onDocClick = (e) => {
+            if (profileRef.current && !profileRef.current.contains(e.target)) {
+                setProfileOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', onDocClick);
+        return () => document.removeEventListener('mousedown', onDocClick);
+    }, []);
 
     const NavLink = ({ to, icon: Icon, children }) => {
         const isActive = location.pathname === to;
@@ -69,11 +106,11 @@ const Layout = () => {
             <aside className="hidden lg:flex lg:flex-col w-72 m-4 bg-white/70 dark:bg-slate-900/40 backdrop-blur-2xl border border-slate-200 dark:border-white/5 rounded-[2.5rem] shadow-2xl relative z-20 overflow-hidden">
                 <div className="p-8">
                     <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-purple-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/20">
+                        <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-purple-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/20 shrink-0">
                             <span className="text-white font-black italic">S</span>
                         </div>
-                        <div>
-                            <h1 className="sf-adaptive-title font-black text-slate-900 dark:text-white tracking-tight">{settings.platform_name}</h1>
+                        <div className="min-w-0">
+                            <h1 className="sf-adaptive-title font-black text-slate-900 dark:text-white tracking-tight truncate">{settings.platform_name}</h1>
                             <p className="text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest leading-none">Smart Assistant</p>
                         </div>
                     </div>
@@ -115,15 +152,6 @@ const Layout = () => {
                     )}
                 </nav>
 
-                <div className="p-6 border-t border-slate-100/50 dark:border-white/5">
-                    <button
-                        onClick={handleLogout}
-                        className="flex items-center w-full px-4 py-4 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-2xl transition-all duration-300 font-bold group"
-                    >
-                        <LogOut className="w-5 h-5 mr-3 group-hover:rotate-12 transition-transform" />
-                        Logout
-                    </button>
-                </div>
             </aside>
 
             {/* Mobile Sidebar Overlay */}
@@ -145,11 +173,11 @@ const Layout = () => {
                             className="fixed left-0 top-0 bottom-0 w-[80%] max-w-[320px] bg-white dark:bg-slate-900 z-50 p-6 flex flex-col shadow-2xl lg:hidden overflow-x-hidden"
                         >
                             <div className="flex items-center justify-between mb-8">
-                                <div className="flex items-center gap-2">
-                                    <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+                                <div className="flex items-center gap-2 min-w-0">
+                                    <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shrink-0">
                                         <span className="text-white font-bold italic text-sm">S</span>
                                     </div>
-                                    <h1 className="font-black text-slate-900 dark:text-white uppercase tracking-tight">{settings.platform_name}</h1>
+                                    <h1 className="font-black text-slate-900 dark:text-white uppercase tracking-tight truncate">{settings.platform_name}</h1>
                                 </div>
                                 <button onClick={() => setMobileMenuOpen(false)}>
                                     <X className="w-6 h-6 text-slate-400" />
@@ -182,15 +210,6 @@ const Layout = () => {
                                     </>
                                 )}
                             </nav>
-                            <div className="pt-6 border-t border-slate-100 dark:border-white/5">
-                                <button
-                                    onClick={handleLogout}
-                                    className="flex items-center w-full px-4 py-4 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-2xl transition-all font-bold"
-                                >
-                                    <LogOut className="w-5 h-5 mr-3" />
-                                    Logout
-                                </button>
-                            </div>
                         </motion.div>
                     </>
                 )}
@@ -200,18 +219,23 @@ const Layout = () => {
             <main className="flex-1 flex flex-col min-w-0 h-full relative z-10">
                 {/* Header */}
                 <header className="h-20 lg:h-24 flex items-center justify-between px-6 lg:px-12 relative z-20">
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-3 sm:gap-4 min-w-0">
                         <button
-                            className="lg:hidden p-3 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700"
+                            className="lg:hidden p-3 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 shrink-0"
                             onClick={() => setMobileMenuOpen(true)}
                         >
                             <Menu className="w-6 h-6 text-slate-600 dark:text-slate-300" />
                         </button>
                         <div className="hidden lg:block">
-                            <h2 className="sf-adaptive-title font-black text-slate-900 dark:text-white tracking-tight">
-                                {location.pathname.split('/').pop().replace(/-/g, ' ').toUpperCase() || 'HOME'}
+                            <h2 className="sf-adaptive-title font-semibold text-slate-900 dark:text-white capitalize">
+                                {(location.pathname.split('/').pop() || 'home').replace(/-/g, ' ')}
                             </h2>
-                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Everything looks good</p>
+                            <p className="text-sm text-slate-500 dark:text-slate-400">
+                                {location.pathname.includes('my-requests') ? 'Track your service requests'
+                                    : location.pathname.includes('invoices') ? 'Bills and payments'
+                                    : location.pathname.includes('settings') ? 'Account preferences'
+                                    : 'ServeFlow dashboard'}
+                            </p>
                         </div>
                     </div>
 
@@ -289,14 +313,49 @@ const Layout = () => {
                             </div>
                         )}
 
-                        <div className="flex items-center gap-3 p-1.5 lg:p-2 bg-white/50 dark:bg-slate-800/50 backdrop-blur-md rounded-[1.5rem] border border-slate-200/50 dark:border-white/5 shadow-sm pr-4 lg:pr-6">
-                            <div className="w-9 h-9 lg:w-11 h-11 bg-gradient-to-br from-blue-600 to-purple-600 rounded-[1rem] flex items-center justify-center text-white font-black shadow-lg shadow-blue-500/20 text-sm">
-                                {userRole[0].toUpperCase()}
-                            </div>
-                            <div className="hidden sm:block">
-                                <p className="text-[11px] font-black text-slate-900 dark:text-white leading-none capitalize mb-0.5">{userRole} Profile</p>
-                                <p className="text-[10px] font-bold text-green-500 dark:text-green-400 leading-none">Status: Active</p>
-                            </div>
+                        <div className="relative" ref={profileRef}>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setProfileOpen((o) => !o);
+                                    setNotifOpen(false);
+                                }}
+                                className="flex items-center gap-2 sm:gap-3 p-1.5 lg:p-2 bg-white/50 dark:bg-slate-800/50 backdrop-blur-md rounded-[1.5rem] border border-slate-200/50 dark:border-white/5 shadow-sm pr-3 lg:pr-5 hover:scale-[1.02] transition-transform"
+                                aria-expanded={profileOpen}
+                                aria-haspopup="menu"
+                            >
+                                <UserAvatar
+                                    photo={profileMeta?.profile?.photo}
+                                    name={[profileMeta?.first_name, profileMeta?.last_name].filter(Boolean).join(' ')}
+                                    username={profileMeta?.username}
+                                />
+                                <div className="hidden sm:block text-left min-w-0">
+                                    <p className="text-[11px] font-black text-slate-900 dark:text-white leading-none truncate max-w-[120px]">
+                                        {profileMeta?.first_name || profileMeta?.username || `${userRole} account`}
+                                    </p>
+                                    <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 leading-none capitalize mt-0.5">{userRole}</p>
+                                </div>
+                                <ChevronDown className={`w-4 h-4 text-slate-400 hidden sm:block transition-transform ${profileOpen ? 'rotate-180' : ''}`} />
+                            </button>
+                            {profileOpen && (
+                                <div className="absolute right-0 top-full mt-2 w-56 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xl py-2 z-40 overflow-hidden">
+                                    <button type="button" onClick={() => { navigate('/dashboard/settings'); setProfileOpen(false); }} className="w-full flex items-center gap-3 px-4 py-3 text-sm font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
+                                        <User className="w-4 h-4" /> Profile
+                                    </button>
+                                    <button type="button" onClick={() => { navigate('/dashboard/settings'); setProfileOpen(false); }} className="w-full flex items-center gap-3 px-4 py-3 text-sm font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
+                                        <Settings className="w-4 h-4" /> Settings
+                                    </button>
+                                    {userRole === 'provider' && (
+                                        <button type="button" onClick={() => { navigate('/dashboard/provider'); setProfileOpen(false); }} className="w-full flex items-center gap-3 px-4 py-3 text-sm font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
+                                            <Briefcase className="w-4 h-4" /> Job Center
+                                        </button>
+                                    )}
+                                    <div className="border-t border-slate-100 dark:border-slate-800 my-1" />
+                                    <button type="button" onClick={() => { setProfileOpen(false); logout(); }} className="w-full flex items-center gap-3 px-4 py-3 text-sm font-bold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20">
+                                        <LogOut className="w-4 h-4" /> Logout
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </header>

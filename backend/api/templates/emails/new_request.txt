@@ -1,0 +1,12 @@
+ServeFlow AI — New Service Request
+
+Category: {{ category_name }}
+Title: {{ title }}
+Description: {{ description }}
+Budget: {{ budget }}
+Location: {{ location }}
+Preferred date: {{ preferred_date }}
+Customer: {{ customer_name }}
+Request ID: #{{ request_id }}
+
+Log in to your dashboard to review and bid.

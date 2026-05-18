@@ -1,12 +1,37 @@
 import json
 import os
 import base64
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage
+from gemini_client import get_llm_pro
 from .state import AgentState
 
-# Initialize LLM (allowed models: gemini-3-flash-preview, gemini-3.1-pro-preview)
-llm_pro = ChatGoogleGenerativeAI(model="gemini-3.1-pro-preview", google_api_key=os.getenv("GEMINI_API_KEY"))
+MOCK_ID_RESULTS = {
+    "document_type": "unknown",
+    "is_authentic": True,
+    "authenticity_score": 0.9,
+    "name_extracted": None,
+    "expiry_date_valid": True,
+    "tampering_detected": False,
+    "tampering_indicators": [],
+    "confidence": "LOW",
+}
+
+MOCK_LIVENESS_RESULTS = {
+    "face_matches_id": True,
+    "liveness_score": 0.8,
+    "both_clearly_visible": True,
+    "reasoning": "Gemini API key not configured - mock result",
+}
+
+MOCK_CERT_RESULTS = {
+    "verified": True,
+    "subject": "Professional certificate",
+    "issuer": "Unknown",
+    "expiry_date": None,
+    "is_official_document": True,
+    "cert_score": 0.85,
+}
+
 
 def encode_image(image_path):
     if not image_path or not os.path.exists(image_path):
@@ -14,10 +39,15 @@ def encode_image(image_path):
     with open(image_path, "rb") as f:
         return base64.b64encode(f.read()).decode("utf-8")
 
+
 def id_verification_node(state: AgentState):
     """
     Node to verify ID authenticity and extract data using Gemini 3.1 Pro preview.
     """
+    llm_pro = get_llm_pro()
+    if llm_pro is None:
+        return {"id_results": dict(MOCK_ID_RESULTS)}
+
     content = []
     for path in [state.get("id_front_path"), state.get("id_back_path")]:
         encoded = encode_image(path)
@@ -26,7 +56,7 @@ def id_verification_node(state: AgentState):
                 "type": "image_url",
                 "image_url": f"data:image/jpeg;base64,{encoded}"
             })
-    
+
     if not content:
         return {"errors": state.get("errors", []) + ["No ID images found"]}
 
@@ -52,10 +82,15 @@ def id_verification_node(state: AgentState):
     except Exception as e:
         return {"errors": state.get("errors", []) + [str(e)]}
 
+
 def liveness_node(state: AgentState):
     """
     Node to compare selfie with ID and check for liveness.
     """
+    llm_pro = get_llm_pro()
+    if llm_pro is None:
+        return {"liveness_results": dict(MOCK_LIVENESS_RESULTS)}
+
     images = [state.get("id_front_path"), state.get("selfie_path")]
     content = []
     for path in images:
@@ -87,10 +122,15 @@ Return ONLY valid JSON.
     except Exception as e:
         return {"errors": state.get("errors", []) + [str(e)]}
 
+
 def cert_verification_node(state: AgentState):
     """
     Node to verify professional certificates.
     """
+    llm_pro = get_llm_pro()
+    if llm_pro is None:
+        return {"cert_results": dict(MOCK_CERT_RESULTS)}
+
     path = state.get("cert_path")
     encoded = encode_image(path)
     if not encoded:
@@ -116,6 +156,7 @@ Return ONLY valid JSON.
     except Exception as e:
         return {"errors": state.get("errors", []) + [str(e)]}
 
+
 def scoring_node(state: AgentState):
     """
     Calculate the final TrustScore.
@@ -123,14 +164,14 @@ def scoring_node(state: AgentState):
     id_res = state.get("id_results", {})
     live_res = state.get("liveness_results", {})
     cert_res = state.get("cert_results", {})
-    
+
     # Weighting
     id_score = id_res.get("authenticity_score", 0) * 0.4
     live_score = live_res.get("liveness_score", 0) * 0.4
     cert_score = cert_res.get("cert_score", 0) * 0.2 if cert_res.get("verified") else 0
-    
+
     trust_score = round((id_score + live_score + cert_score) * 100, 2)
-    
+
     return {
         "trust_score": trust_score,
         "is_complete": True

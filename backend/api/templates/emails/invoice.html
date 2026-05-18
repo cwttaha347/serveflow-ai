@@ -1,0 +1,23 @@
+{% extends "emails/base_email.html" %}
+{% block title %}Invoice — {{ platform_name }}{% endblock %}
+{% block content %}
+<h1 style="margin:0 0 12px;font-size:22px;font-weight:800;color:#0f172a;">Invoice for your job</h1>
+<p style="margin:0 0 16px;color:#475569;">Hi {{ customer_name }}, an invoice has been generated for <strong>{{ job_title }}</strong>.</p>
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="font-size:14px;border-collapse:collapse;margin-bottom:16px;">
+  <tr><td style="padding:8px 0;color:#64748b;">Provider</td><td align="right" style="padding:8px 0;">{{ provider_name }}</td></tr>
+  {% if service_address %}
+  <tr><td style="padding:8px 0;color:#64748b;vertical-align:top;">Service address</td><td align="right" style="padding:8px 0;">{{ service_address }}</td></tr>
+  {% endif %}
+  {% if customer_address %}
+  <tr><td style="padding:8px 0;color:#64748b;vertical-align:top;">Billing address</td><td align="right" style="padding:8px 0;">{{ customer_address }}</td></tr>
+  {% endif %}
+</table>
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="font-size:14px;border-collapse:collapse;">
+  <tr><td style="padding:8px 0;color:#64748b;">Subtotal</td><td align="right" style="padding:8px 0;">{{ subtotal_display }}</td></tr>
+  <tr><td style="padding:8px 0;color:#64748b;">Tax</td><td align="right" style="padding:8px 0;">{{ tax_display }}</td></tr>
+  <tr><td style="padding:8px 0;color:#64748b;">Discount</td><td align="right" style="padding:8px 0;">{{ discount_display }}</td></tr>
+  <tr><td style="padding:12px 0;font-weight:800;color:#0f172a;border-top:1px solid #e2e8f0;">Total</td><td align="right" style="padding:12px 0;font-weight:800;font-size:18px;color:#2563eb;border-top:1px solid #e2e8f0;">{{ total_display }}</td></tr>
+</table>
+<p style="margin:16px 0 0;font-size:14px;">Status: <strong>{{ payment_status }}</strong></p>
+<p style="margin:8px 0 0;font-size:13px;color:#94a3b8;">Invoice #{{ invoice_id }} · Job #{{ job_id }}</p>
+{% endblock %}

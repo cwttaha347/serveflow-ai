@@ -9,15 +9,12 @@ import { useNavigate } from 'react-router-dom';
 import { useSettings } from '../context/SettingsContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import ChatInterface from '../components/ChatInterface';
-import { useTheme } from '../context/ThemeContext';
-import ThemeToggle from '../components/ThemeToggle';
 import { useWebSocket } from '../context/WebSocketContext';
 import { formatMoney } from '../utils/money';
 
 const MyRequests = () => {
     const { settings } = useSettings();
     const navigate = useNavigate();
-    const { theme } = useTheme();
     const [requests, setRequests] = useState([]);
     const [loading, setLoading] = useState(true);
     const [activeChat, setActiveChat] = useState(null);
@@ -145,7 +142,6 @@ return (
                     <Plus className="w-5 h-5" />
                     New Request
                 </button>
-                <ThemeToggle />
             </div>
         </header>
 
@@ -214,7 +210,7 @@ return (
                                         {request.budget && (
                                             <div className="flex items-center gap-2 text-[11px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-widest">
                                                 <DollarSign className="w-4 h-4" />
-                                                Budget: {formatMoney(request.budget, settings.currency_symbol)}
+                                                Budget: {formatMoney(request.budget, settings)}
                                             </div>
                                         )}
                                     </div>

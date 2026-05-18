@@ -1,0 +1,10 @@
+ServeFlow AI — Email Verification
+
+Hi{% if user_name %} {{ user_name }}{% endif %},
+
+Verify your email by opening this link:
+{{ verify_link }}
+
+If you did not create a ServeFlow account, ignore this email.
+
+© {% now "Y" %} ServeFlow AI

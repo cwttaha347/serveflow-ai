@@ -88,7 +88,7 @@ const ProviderJobDetails = () => {
                     <div className="text-right">
                         <p className="text-sm text-slate-500 dark:text-slate-400">Estimated Value</p>
                         <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">
-                            {formatMoney(job.request?.budget || job.price || 0, settings.currency_symbol)}
+                            {formatMoney(job.request?.budget || job.price || 0, settings)}
                         </p>
                     </div>
                 </div>

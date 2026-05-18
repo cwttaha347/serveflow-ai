@@ -1,0 +1,15 @@
+ServeFlow AI — New Bid
+
+Hi {{ customer_name }},
+
+Request: {{ request_title }}
+Provider: {{ provider_name }} (Rating: {{ provider_rating }})
+Bid: ${{ bid_amount }}
+Duration: {{ estimated_duration }}
+
+Proposal:
+{{ proposal }}
+
+Bid ID: #{{ bid_id }} · Request ID: #{{ request_id }}
+
+Review bids in your dashboard.

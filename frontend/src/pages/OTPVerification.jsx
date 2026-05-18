@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Mail, ArrowRight, RefreshCw, CheckCircle2, AlertCircle } from 'lucide-react';
 import api from '../api';
+import { useAuth } from '../context/AuthContext';
 
 const OTPVerification = () => {
     const [otp, setOtp] = useState(['', '', '', '', '', '']);
@@ -11,10 +12,12 @@ const OTPVerification = () => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [verified, setVerified] = useState(false);
+    const [sendStatus, setSendStatus] = useState('pending'); // pending | sent | failed
     
     const inputRefs = useRef([]);
     const navigate = useNavigate();
     const location = useLocation();
+    const { user, token, refreshUser, markEmailVerified } = useAuth();
     const emailFromState = location.state?.email;
     const emailFromStorage = localStorage.getItem('verificationEmail');
     const email = emailFromState || emailFromStorage || '';
@@ -44,6 +47,48 @@ const OTPVerification = () => {
         }, 100); // Using 100ms for smoother feel, though logical is 1s
         return () => clearInterval(interval);
     }, []);
+
+    const requestOtp = async () => {
+        if (!email) return false;
+        setError('');
+        try {
+            const res = await api.post('auth/request-otp/', { email });
+            setSendStatus('sent');
+            if (res.data?.expires_in_seconds) {
+                setTimer(res.data.expires_in_seconds * 10);
+            }
+            if (res.data?.delivery_hint) {
+                console.info('OTP delivery:', res.data.delivery_hint);
+            }
+            return true;
+        } catch (err) {
+            setSendStatus('failed');
+            const msg =
+                err.response?.data?.error ||
+                err.response?.data?.delivery_hint ||
+                'Could not send verification code. Try again or check your email address.';
+            setError(msg);
+            return false;
+        }
+    };
+
+    useEffect(() => {
+        if (user?.is_email_verified) {
+            navigate(resolveDashboardPath(user), { replace: true });
+        }
+    }, [user, navigate]);
+
+    useEffect(() => {
+        if (!email || user?.is_email_verified) return;
+        const pendingSignup = localStorage.getItem('otpPendingFromSignup');
+        if (pendingSignup && pendingSignup === email) {
+            localStorage.removeItem('otpPendingFromSignup');
+            setSendStatus('sent');
+            return;
+        }
+        requestOtp();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [email, user?.is_email_verified]);
 
     const formatTime = (seconds) => {
         const mins = Math.floor(seconds / 10 / 60);
@@ -99,26 +144,22 @@ const OTPVerification = () => {
                 otp: otpString
             });
             setVerified(true);
-            localStorage.removeItem('verificationEmail');
+            markEmailVerified();
 
-            const token = localStorage.getItem('token');
+            const sessionToken = token || localStorage.getItem('token');
 
-            // If user has no active session (common after signup OTP), send to login directly.
-            if (!token) {
-                setTimeout(() => navigate('/login', { state: { emailVerified: true, email } }), 1200);
+            if (!sessionToken) {
+                navigate('/login', { replace: true, state: { emailVerified: true, email } });
                 return;
             }
 
-            // Otherwise continue with role-based redirect.
-            try {
-                const userRes = await api.get('users/me/');
-                const nextPath = resolveDashboardPath(userRes.data);
-                setTimeout(() => navigate(nextPath), 1200);
-            } catch (meErr) {
-                // Session may be stale; avoid trapping user on OTP page.
-                console.error('Unable to fetch profile after OTP verification', meErr);
-                setTimeout(() => navigate('/login', { state: { emailVerified: true, email } }), 1200);
+            const meData = await refreshUser();
+            if (!meData) {
+                navigate('/login', { replace: true, state: { emailVerified: true, email } });
+                return;
             }
+            const nextPath = resolveDashboardPath(meData);
+            navigate(nextPath, { replace: true });
         } catch (err) {
             setError(err.response?.data?.error || 'Verification failed');
             // Shake animation would be triggered here
@@ -132,15 +173,13 @@ const OTPVerification = () => {
         
         setLoading(true);
         setError('');
-        try {
-            await api.post('auth/request-otp/', { email });
-            setResendTimer(600); // 1 minute cooldown
-            setTimer(6000); // Reset main timer
-        } catch (err) {
-            setError('Failed to resend OTP');
-        } finally {
-            setLoading(false);
+        setSendStatus('pending');
+        const ok = await requestOtp();
+        if (ok) {
+            setResendTimer(600);
+            setTimer(6000);
         }
+        setLoading(false);
     };
 
     if (!email) {
@@ -177,8 +216,16 @@ const OTPVerification = () => {
                     </motion.div>
                     <h2 className="text-2xl font-bold text-white mb-2">Check your email</h2>
                     <p className="text-slate-400">
-                        We've sent a 6-digit verification code to <br />
+                        {sendStatus === 'pending' && 'Sending a 6-digit verification code to'}
+                        {sendStatus === 'sent' && "We've sent a 6-digit verification code to"}
+                        {sendStatus === 'failed' && 'We could not send a verification code to'}
+                        <br />
                         <span className="text-blue-400 font-medium">{email}</span>
+                        {sendStatus === 'sent' && (
+                            <span className="block text-xs text-slate-500 mt-2">
+                                Check your inbox and spam folder.
+                            </span>
+                        )}
                     </p>
                 </div>
 

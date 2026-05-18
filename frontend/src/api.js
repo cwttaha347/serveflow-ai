@@ -1,20 +1,34 @@
 import axios from 'axios';
 import { getDraft, markResumeAfterAuth } from './utils/chatbotDraft';
 
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+const normalizeApiBase = (url) => (url.endsWith('/') ? url : `${url}/`);
+
 // Automatically use environment variable or the current hostname
 const getBaseUrl = () => {
-    // In production (Hugging Face or similar), we prefer serving everything on the same origin
-    // This ensures monolithic deployments work correctly regardless of env variables.
-    if (process.env.NODE_ENV === 'production') {
-        const protocol = window.location.protocol;
-        const host = window.location.host; // includes port if any
-        return `${protocol}//${host}/api/`;
+    const explicit = (import.meta.env.VITE_API_URL || '').trim();
+    if (explicit) {
+        try {
+            const api = new URL(explicit);
+            const pageHost = window.location.hostname.toLowerCase();
+            // Safety: local UI must not call a remote API (stale .env.production / Koyeb bake-in)
+            if (LOCAL_HOSTS.has(pageHost) && !LOCAL_HOSTS.has(api.hostname.toLowerCase())) {
+                return normalizeApiBase(`${window.location.origin}/api`);
+            }
+            return normalizeApiBase(explicit);
+        } catch {
+            // ignore invalid URL
+        }
     }
 
-    if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL;
-    
-    // Fallback for local development
-    return `http://${window.location.hostname}:8000/api/`;
+    // Production / Docker nginx: same-origin /api/
+    if (import.meta.env.PROD) {
+        return normalizeApiBase(`${window.location.origin}/api`);
+    }
+
+    // Dev: Vite proxies /api → Django (avoids DisallowedHost on LAN IPs)
+    return normalizeApiBase(`${window.location.origin}/api`);
 };
 
 const API_BASE_URL = getBaseUrl();

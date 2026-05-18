@@ -152,7 +152,7 @@ const Invoices = () => {
                                             </td>
                                             <td className="px-8 py-6">
                                                 <span className="text-lg font-black text-slate-900 dark:text-white">
-                                                    {formatMoney(invoice.total, settings.currency_symbol)}
+                                                    {formatMoney(invoice.total, settings)}
                                                 </span>
                                             </td>
                                             <td className="px-8 py-6">

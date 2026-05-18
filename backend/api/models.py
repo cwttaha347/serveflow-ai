@@ -412,6 +412,9 @@ class Invoice(models.Model):
     tax = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     discount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     total = models.DecimalField(max_digits=10, decimal_places=2)
+    customer_address = models.TextField(blank=True)
+    provider_address = models.TextField(blank=True)
+    service_address = models.TextField(blank=True)
     paid = models.BooleanField(default=False)
     paid_at = models.DateTimeField(null=True, blank=True)
     payment_method = models.CharField(max_length=50, blank=True)
@@ -607,9 +610,8 @@ class SystemSettings(models.Model):
             'MIN_PAYOUT_AMOUNT': ('min_payout_amount', float, []),
             'SMTP_HOST': ('smtp_host', str, ['EMAIL_HOST']),
             'SMTP_PORT': ('smtp_port', int, ['EMAIL_PORT']),
-            # Do not map SENDGRID_API_KEY to smtp_user (use apikey + SG.* password; see below).
             'SMTP_USER': ('smtp_user', str, ['EMAIL_HOST_USER']),
-            'SMTP_PASSWORD': ('smtp_password', str, ['EMAIL_HOST_PASSWORD', 'SENDGRID_API_KEY']),
+            'SMTP_PASSWORD': ('smtp_password', str, ['EMAIL_HOST_PASSWORD']),
             'SMTP_USE_TLS': ('smtp_use_tls', lambda x: str(x).lower() == 'true', ['EMAIL_USE_TLS']),
             'MAINTENANCE_MODE': ('maintenance_mode', lambda x: str(x).lower() == 'true', []),
             'ENABLE_AI_ANALYSIS': ('enable_ai_analysis', lambda x: str(x).lower() == 'true', []),
@@ -672,22 +674,6 @@ class SystemSettings(models.Model):
                     setattr(self, field_name, env_val.strip())
                     changed = True
                     update_fields.append(field_name)
-
-        # SendGrid: SG.* API keys belong in smtp_password with smtp_user=apikey (not as username).
-        sendgrid_key = (os.environ.get("SENDGRID_API_KEY") or "").strip()
-        sendgrid_host = (
-            os.environ.get("SMTP_HOST") or os.environ.get("EMAIL_HOST") or self.smtp_host or ""
-        ).lower()
-        if sendgrid_key.startswith("SG.") and "sendgrid" in sendgrid_host:
-            user_val = (self.smtp_user or "").strip()
-            if force or not user_val or user_val == sendgrid_key:
-                self.smtp_user = "apikey"
-                changed = True
-                update_fields.append("smtp_user")
-            if force or not (self.smtp_password or "").strip():
-                self.smtp_password = sendgrid_key
-                changed = True
-                update_fields.append("smtp_password")
 
         if changed:
             self.save(update_fields=list(dict.fromkeys(update_fields)))

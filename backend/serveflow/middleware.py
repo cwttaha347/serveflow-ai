@@ -1,3 +1,42 @@
+import ipaddress
+import os
+
+from django.conf import settings
+
+
+def _is_private_or_local_host(hostname: str) -> bool:
+    hostname = (hostname or "").strip().lower()
+    if not hostname:
+        return False
+    if hostname in ("localhost", "backend", "host.docker.internal"):
+        return True
+    if hostname.endswith(".local"):
+        return True
+    try:
+        ip = ipaddress.ip_address(hostname)
+        return ip.is_private or ip.is_loopback
+    except ValueError:
+        return False
+
+
+class AllowLanHostMiddleware:
+    """
+    Local dev / Docker: accept LAN and private-network Host headers.
+    Prevents opaque Django HTML 400 (DisallowedHost) when not using localhost.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+        self._enabled = settings.DEBUG or os.environ.get("ALLOW_LAN_HOSTS", "True").lower() == "true"
+
+    def __call__(self, request):
+        if self._enabled:
+            host = request.META.get("HTTP_HOST", "").split(":")[0].strip().lower()
+            if host and host not in settings.ALLOWED_HOSTS and _is_private_or_local_host(host):
+                settings.ALLOWED_HOSTS.append(host)
+        return self.get_response(request)
+
+
 class SecurityHeadersMiddleware:
     """Add security headers to all responses"""
     

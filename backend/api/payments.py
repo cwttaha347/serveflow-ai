@@ -84,11 +84,15 @@ def handle_successful_payment(session):
         
     try:
         invoice = Invoice.objects.get(id=invoice_id)
+        was_paid = invoice.paid
         invoice.paid = True
         invoice.paid_at = invoice.paid_at or timezone.now()
         invoice.payment_method = 'stripe'
         invoice.stripe_payment_intent_id = session.get('payment_intent')
         invoice.save()
+        if not was_paid:
+            from .invoice_utils import on_invoice_paid
+            on_invoice_paid(invoice)
         
         # Update job status if needed
         job = invoice.job
@@ -121,6 +125,29 @@ def handle_successful_payment(session):
         pass
 
 
+def _checkout_session_paid(session, stripe_client):
+    """True when Checkout session or its PaymentIntent indicates success."""
+    if session.get('payment_status') == 'paid':
+        return True
+    pi = session.get('payment_intent')
+    if not pi:
+        return False
+    if isinstance(pi, dict):
+        return pi.get('status') == 'succeeded'
+    try:
+        intent = stripe_client.PaymentIntent.retrieve(pi)
+        return intent.get('status') == 'succeeded'
+    except Exception:
+        return False
+
+
+def _payment_intent_id(session):
+    pi = session.get('payment_intent')
+    if isinstance(pi, dict):
+        return pi.get('id')
+    return pi
+
+
 def confirm_invoice_payment(invoice, session_id=None):
     """
     Reconcile invoice status from Stripe session as a fallback to webhooks.
@@ -130,23 +157,32 @@ def confirm_invoice_payment(invoice, session_id=None):
     if not checkout_session_id:
         raise ValueError("No Stripe checkout session is associated with this invoice.")
 
-    session = stripe_client.checkout.Session.retrieve(checkout_session_id)
+    session = stripe_client.checkout.Session.retrieve(
+        checkout_session_id,
+        expand=['payment_intent'],
+    )
     payment_status = session.get('payment_status')
+    session_paid = _checkout_session_paid(session, stripe_client)
 
-    if payment_status == 'paid':
+    if session_paid:
+        was_paid = invoice.paid
         invoice.paid = True
         invoice.paid_at = invoice.paid_at or timezone.now()
         invoice.payment_method = invoice.payment_method or 'stripe'
         invoice.stripe_checkout_session_id = invoice.stripe_checkout_session_id or session.get('id')
-        invoice.stripe_payment_intent_id = session.get('payment_intent') or invoice.stripe_payment_intent_id
+        invoice.stripe_payment_intent_id = _payment_intent_id(session) or invoice.stripe_payment_intent_id
         invoice.save()
+        if not was_paid:
+            from .invoice_utils import on_invoice_paid
+            on_invoice_paid(invoice)
 
     return {
         "invoice_id": invoice.id,
         "paid": bool(invoice.paid),
+        "pending": not bool(invoice.paid) and not session_paid,
         "payment_status": payment_status,
         "session_id": session.get('id'),
-        "payment_intent": session.get('payment_intent'),
+        "payment_intent": _payment_intent_id(session),
     }
 
 

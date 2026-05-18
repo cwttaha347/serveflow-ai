@@ -6,6 +6,7 @@ import { Mail, Lock, Loader2, ArrowRight, User, Phone, UserCircle } from 'lucide
 import { motion, AnimatePresence } from 'framer-motion';
 import api from '../api';
 import { useSettings } from '../context/SettingsContext';
+import { getErrorMessage } from '../utils/apiErrors';
 
 const Login = () => {
     const { settings } = useSettings();
@@ -51,29 +52,32 @@ const Login = () => {
         setError('');
     };
 
-    const parseError = (err) => {
-        if (!err.response?.data) return 'An unexpected error occurred. Please try again.';
-        const data = err.response.data;
-        
-        if (typeof data === 'string') return data;
-        if (data.error) return data.error;
-        if (data.detail) return data.detail;
-        
-        // Handle DRF validation errors (objects/arrays)
-        return Object.entries(data)
-            .map(([field, msgs]) => {
-                const fieldName = field.charAt(0).toUpperCase() + field.slice(1).replace('_', ' ');
-                const message = Array.isArray(msgs) ? msgs[0] : msgs;
-                return `${fieldName}: ${message}`;
-            })
-            .join(' | ');
-    };
+    const parseError = (err) =>
+        getErrorMessage(err, 'An unexpected error occurred. Please try again.');
 
     const handleLoginSubmit = async (e) => {
         e.preventDefault();
         setLoading(true);
         setError('');
         try {
+            try {
+                const healthRes = await fetch(`${window.location.origin}/health/`, { method: 'GET' });
+                if (!healthRes.ok) {
+                    setError('Server is starting, please wait a moment and try again.');
+                    setLoading(false);
+                    return;
+                }
+                const health = await healthRes.json().catch(() => null);
+                if (!health || health.status !== 'ok') {
+                    setError('Server is starting, please wait a moment and try again.');
+                    setLoading(false);
+                    return;
+                }
+            } catch {
+                setError('Cannot reach the server. Start the backend (Docker or start-serveflow.ps1) and try again.');
+                setLoading(false);
+                return;
+            }
             await login(loginData.username, loginData.password);
         } catch (err) {
             setError(parseError(err));
@@ -160,10 +164,13 @@ const Login = () => {
                                 onSubmit={handleLoginSubmit}
                             >
                                 {error && (
-                                    <div className="p-3 bg-red-50 text-red-600 text-sm rounded-lg border border-red-200">
+                                    <motion.div className="p-3 bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 text-sm rounded-lg border border-red-200 dark:border-red-800">
                                         {error}
-                                    </div>
+                                    </motion.div>
                                 )}
+                                <p className="text-xs text-slate-500 dark:text-slate-400">
+                                    Docker demo: <span className="font-mono">admin</span> / <span className="font-mono">admin123</span>
+                                </p>
                                 <div>
                                     <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
                                         Email address or Username
@@ -176,7 +183,7 @@ const Login = () => {
                                             required
                                             value={loginData.username}
                                             onChange={handleLoginChange}
-                                            className="block w-full pl-10 pr-3 py-3 border border-slate-300 dark:border-slate-700 rounded-lg dark:bg-slate-800 dark:text-white focus:ring-2 focus:ring-blue-500"
+                                            className="block w-full pl-10 pr-3 py-3 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:ring-2 focus:ring-blue-500"
                                             placeholder="Enter email or username"
                                         />
                                     </div>
@@ -184,7 +191,7 @@ const Login = () => {
                                 <div>
                                     <div className="flex justify-between items-center mb-2">
                                         <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Password</label>
-                                        <Link to="/forgot-password" className="text-sm text-blue-600 hover:text-blue-500">Forgot password?</Link>
+                                        <Link to="/forgot-password" className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-500 dark:hover:text-blue-300">Forgot password?</Link>
                                     </div>
                                     <div className="relative">
                                         <Lock className="absolute left-3 top-3 h-5 w-5 text-slate-400" />
@@ -194,7 +201,7 @@ const Login = () => {
                                             required
                                             value={loginData.password}
                                             onChange={handleLoginChange}
-                                            className="block w-full pl-10 pr-3 py-3 border border-slate-300 dark:border-slate-700 rounded-lg dark:bg-slate-800 dark:text-white focus:ring-2 focus:ring-blue-500"
+                                            className="block w-full pl-10 pr-3 py-3 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:ring-2 focus:ring-blue-500"
                                             placeholder="•••••••"
                                         />
                                     </div>
@@ -212,30 +219,34 @@ const Login = () => {
                                 className="space-y-4"
                                 onSubmit={handleRegisterSubmit}
                             >
-                                {error && <div className="p-3 bg-red-50 text-red-600 text-sm rounded-lg">{error}</div>}
+                                {error && (
+                                    <motion.div className="p-3 bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 text-sm rounded-lg border border-red-200 dark:border-red-800">
+                                        {error}
+                                    </motion.div>
+                                )}
 
                                 {/* Role Toggle */}
                                 <div className="grid grid-cols-2 gap-4 mb-4">
                                     <button type="button" onClick={() => setRegisterData({ ...registerData, role: 'user' })}
-                                        className={`p-3 rounded-lg border-2 flex flex-col items-center ${registerData.role === 'user' ? 'border-blue-500 bg-blue-50' : 'border-slate-200'}`}>
+                                        className={`p-3 rounded-lg border-2 flex flex-col items-center ${registerData.role === 'user' ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/40 text-slate-900 dark:text-white' : 'border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-300'}`}>
                                         <UserCircle className={registerData.role === 'user' ? 'text-blue-500' : 'text-slate-400'} />
-                                        <span className="text-sm font-bold mt-1">Customer</span>
+                                        <span className="text-sm font-semibold mt-1">Customer</span>
                                     </button>
                                     <button type="button" onClick={() => setRegisterData({ ...registerData, role: 'provider' })}
-                                        className={`p-3 rounded-lg border-2 flex flex-col items-center ${registerData.role === 'provider' ? 'border-blue-500 bg-blue-50' : 'border-slate-200'}`}>
+                                        className={`p-3 rounded-lg border-2 flex flex-col items-center ${registerData.role === 'provider' ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/40 text-slate-900 dark:text-white' : 'border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-300'}`}>
                                         <User className={registerData.role === 'provider' ? 'text-blue-500' : 'text-slate-400'} />
-                                        <span className="text-sm font-bold mt-1">Provider</span>
+                                        <span className="text-sm font-semibold mt-1">Provider</span>
                                     </button>
                                 </div>
 
                                 <div className="grid grid-cols-2 gap-4">
-                                    <input name="first_name" placeholder="First Name" required value={registerData.first_name} onChange={handleRegisterChange} className="w-full px-4 py-2 border rounded-lg dark:bg-slate-800 dark:text-white" />
-                                    <input name="last_name" placeholder="Last Name" required value={registerData.last_name} onChange={handleRegisterChange} className="w-full px-4 py-2 border rounded-lg dark:bg-slate-800 dark:text-white" />
+                                    <input name="first_name" placeholder="First Name" required value={registerData.first_name} onChange={handleRegisterChange} className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500" />
+                                    <input name="last_name" placeholder="Last Name" required value={registerData.last_name} onChange={handleRegisterChange} className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500" />
                                 </div>
-                                <input name="username" placeholder="Username (required)" required value={registerData.username} onChange={handleRegisterChange} className="w-full px-4 py-2 border rounded-lg dark:bg-slate-800 dark:text-white" />
-                                <input name="email" type="email" placeholder="Email Address" required value={registerData.email} onChange={handleRegisterChange} className="w-full px-4 py-2 border rounded-lg dark:bg-slate-800 dark:text-white" />
-                                <input name="password" type="password" placeholder="Password (8+ chars)" required value={registerData.password} onChange={handleRegisterChange} className="w-full px-4 py-2 border rounded-lg dark:bg-slate-800 dark:text-white" />
-                                <input name="confirmPassword" type="password" placeholder="Confirm Password" required value={registerData.confirmPassword} onChange={handleRegisterChange} className="w-full px-4 py-2 border rounded-lg dark:bg-slate-800 dark:text-white" />
+                                <input name="username" placeholder="Username (required)" required value={registerData.username} onChange={handleRegisterChange} className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500" />
+                                <input name="email" type="email" placeholder="Email Address" required value={registerData.email} onChange={handleRegisterChange} className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500" />
+                                <input name="password" type="password" placeholder="Password (8+ chars)" required value={registerData.password} onChange={handleRegisterChange} className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500" />
+                                <input name="confirmPassword" type="password" placeholder="Confirm Password" required value={registerData.confirmPassword} onChange={handleRegisterChange} className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500" />
                                 {registerData.role === 'provider' && (
                                     <div>
                                         <p className="text-sm font-semibold text-slate-600 dark:text-slate-300 mb-2">Select service categories</p>
@@ -255,8 +266,8 @@ const Login = () => {
                                                     }}
                                                     className={`px-3 py-2 rounded-lg border text-xs font-semibold ${
                                                         registerData.category_ids.includes(cat.id)
-                                                            ? 'border-blue-500 bg-blue-50 text-blue-700'
-                                                            : 'border-slate-300 dark:border-slate-700'
+                                                            ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300'
+                                                            : 'border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300'
                                                     }`}
                                                 >
                                                     {cat.name}
@@ -282,7 +293,7 @@ const Login = () => {
                                 setMode(mode === 'login' ? 'register' : 'login');
                                 setError('');
                             }}
-                            className="ml-2 font-medium text-blue-600 hover:text-blue-500 hover:underline"
+                            className="ml-2 font-medium text-blue-600 dark:text-blue-400 hover:text-blue-500 dark:hover:text-blue-300 hover:underline"
                         >
                             {mode === 'login' ? 'Sign up for free' : 'Sign in'}
                         </button>

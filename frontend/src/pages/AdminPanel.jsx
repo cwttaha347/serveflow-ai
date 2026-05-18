@@ -10,6 +10,7 @@ import { useNavigate } from 'react-router-dom';
 import { useSettings } from '../context/SettingsContext';
 import { motion } from 'framer-motion';
 import { formatMoney } from '../utils/money';
+import { getErrorMessage } from '../utils/apiErrors';
 
 const AdminPanel = () => {
     const { settings } = useSettings();
@@ -48,8 +49,7 @@ const AdminPanel = () => {
 
             setProviders(providersRes.data);
         } catch (error) {
-            console.error('Error fetching admin data:', error);
-            showError('Failed to load admin data');
+            showError(getErrorMessage(error, 'Failed to load admin data'));
         } finally {
             setLoading(false);
         }
@@ -66,7 +66,7 @@ const AdminPanel = () => {
             success(`Protocol updated: Provider ${status}`);
             fetchAdminData();
         } catch (error) {
-            showError('Failed to update provider status');
+            showError(getErrorMessage(error, 'Failed to update provider status'));
         }
     };
 

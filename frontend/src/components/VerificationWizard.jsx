@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Upload, CheckCircle2, ShieldCheck, CreditCard, User, FileBadge, AlertTriangle, Loader2 } from 'lucide-react';
 import axios from 'axios';
+import { prepareImageForUpload } from '../utils/imageUpload';
+import { getImagePrepErrorMessage, getImageUploadErrorMessage } from '../utils/uploadErrors';
 
 const VerificationWizard = ({ onComplete }) => {
     const [step, setStep] = useState(1);
@@ -10,6 +12,7 @@ const VerificationWizard = ({ onComplete }) => {
     const [cert, setCert] = useState(null);
     const [loading, setLoading] = useState(false);
     const [result, setResult] = useState(null);
+    const [uploadError, setUploadError] = useState(null);
 
     const steps = [
         { id: 1, name: 'Identity ID', icon: CreditCard },
@@ -18,11 +21,18 @@ const VerificationWizard = ({ onComplete }) => {
         { id: 4, name: 'AI Audit', icon: ShieldCheck },
     ];
 
-    const handleFileUpload = (type, file) => {
-        if (type === 'id') setIdFront(file);
-        if (type === 'selfie') setSelfie(file);
-        if (type === 'cert') setCert(file);
-        setStep(prev => prev + 1);
+    const handleFileUpload = async (type, rawFile) => {
+        if (!rawFile) return;
+        setUploadError(null);
+        try {
+            const { file } = await prepareImageForUpload(rawFile);
+            if (type === 'id') setIdFront(file);
+            if (type === 'selfie') setSelfie(file);
+            if (type === 'cert') setCert(file);
+            setStep(prev => prev + 1);
+        } catch (err) {
+            setUploadError(getImagePrepErrorMessage(err));
+        }
     };
 
     const runAIAudit = async () => {
@@ -39,6 +49,7 @@ const VerificationWizard = ({ onComplete }) => {
             setStep(4);
         } catch (err) {
             console.error('Audit failed', err);
+            setUploadError(getImageUploadErrorMessage(err, 'Verification upload failed.'));
         } finally {
             setLoading(false);
         }
@@ -62,7 +73,10 @@ const VerificationWizard = ({ onComplete }) => {
                 ))}
             </div>
 
-            <div className="p-10 min-h-[400px] flex flex-col items-center justify-center">
+            <motion.div className="p-10 min-h-[400px] flex flex-col items-center justify-center">
+                {uploadError && (
+                    <p className="mb-4 text-sm text-red-400 text-center px-4">{uploadError}</p>
+                )}
                 <AnimatePresence mode="wait">
                     {step === 1 && (
                         <motion.div 
@@ -163,7 +177,7 @@ const VerificationWizard = ({ onComplete }) => {
                         </motion.div>
                     )}
                 </AnimatePresence>
-            </div>
+            </motion.div>
         </div>
     );
 };

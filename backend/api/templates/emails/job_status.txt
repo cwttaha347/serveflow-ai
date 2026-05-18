@@ -1,0 +1,9 @@
+ServeFlow AI — Job Status Update
+
+Hi {{ customer_name }},
+
+Job: {{ job_title }}
+Provider: {{ provider_name }}
+Status: {{ old_status }} → {{ new_status }}
+Job ID: #{{ job_id }}
+Request ID: #{{ request_id }}

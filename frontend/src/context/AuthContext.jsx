@@ -4,6 +4,26 @@ import api from '../api';
 
 const AuthContext = createContext(null);
 
+const mapMeToUser = (meData = {}) => ({
+    id: meData.id,
+    role: meData.role,
+    email: meData.email,
+    is_email_verified: Boolean(meData.is_email_verified),
+    profile_completed: meData.profile_completed !== false,
+    provider_onboarding_required: meData.provider_onboarding_required === true,
+});
+
+const persistUserMeta = (meData) => {
+    localStorage.setItem('userRole', meData.role || '');
+    localStorage.setItem('userId', String(meData.id || ''));
+    if (meData.email && meData.is_email_verified === false) {
+        localStorage.setItem('verificationEmail', meData.email);
+    } else {
+        localStorage.removeItem('verificationEmail');
+        localStorage.removeItem('otpPendingFromSignup');
+    }
+};
+
 export const AuthProvider = ({ children }) => {
     const [user, setUser] = useState(null);
     const [token, setToken] = useState(localStorage.getItem('token'));
@@ -11,26 +31,50 @@ export const AuthProvider = ({ children }) => {
     const [loading, setLoading] = useState(true);
     const navigate = useNavigate();
 
+    const applyMeData = (meData = {}) => {
+        const mapped = mapMeToUser(meData);
+        setRole(mapped.role || localStorage.getItem('userRole') || null);
+        setUser(mapped);
+        persistUserMeta(meData);
+        return mapped;
+    };
+
+    const refreshUser = async () => {
+        const activeToken = token || localStorage.getItem('token');
+        if (!activeToken) return null;
+        if (!token) {
+            setToken(activeToken);
+        }
+        try {
+            const me = await api.get('users/me/');
+            return applyMeData(me.data || {});
+        } catch (error) {
+            console.error('Failed to refresh user', error);
+            if (error.response?.status === 401) {
+                logout();
+            }
+            return null;
+        }
+    };
+
+    const markEmailVerified = () => {
+        localStorage.removeItem('verificationEmail');
+        localStorage.removeItem('otpPendingFromSignup');
+        setUser((prev) => (prev ? { ...prev, is_email_verified: true } : { is_email_verified: true }));
+    };
+
     useEffect(() => {
         const checkAuth = async () => {
             if (token) {
                 try {
                     const me = await api.get('users/me/');
                     const meData = me.data || {};
-                    setRole(meData.role || localStorage.getItem('userRole') || null);
-                    setUser({
-                        id: meData.id,
-                        role: meData.role,
-                        email: meData.email,
-                        is_email_verified: Boolean(meData.is_email_verified),
-                    });
-                    localStorage.setItem('userRole', meData.role || '');
-                    localStorage.setItem('userId', String(meData.id || ''));
-                    if (meData.email) {
-                        localStorage.setItem('verificationEmail', meData.email);
-                    }
+                    const mapped = mapMeToUser(meData);
+                    setRole(mapped.role || localStorage.getItem('userRole') || null);
+                    setUser(mapped);
+                    persistUserMeta(meData);
                     if (meData.is_email_verified === false && meData.role !== 'admin') {
-                        navigate('/verify-otp', { state: { email: meData.email } });
+                        navigate('/verify-otp', { replace: true, state: { email: meData.email } });
                     }
                 } catch (error) {
                     console.error("Auth check failed", error);
@@ -62,7 +106,12 @@ export const AuthProvider = ({ children }) => {
             // localStorage.setItem('refresh_token', refresh); // Not using JWT anymore
             localStorage.setItem('userRole', userRole);
             localStorage.setItem('userId', user_id);
-            localStorage.setItem('verificationEmail', userEmail);
+            if (!is_email_verified) {
+                localStorage.setItem('verificationEmail', userEmail);
+            } else {
+                localStorage.removeItem('verificationEmail');
+                localStorage.removeItem('otpPendingFromSignup');
+            }
 
             setToken(token);
             setRole(userRole);
@@ -71,10 +120,12 @@ export const AuthProvider = ({ children }) => {
                 role: userRole,
                 email: userEmail,
                 is_email_verified: Boolean(is_email_verified),
+                profile_completed: profile_completed !== false,
+                provider_onboarding_required: provider_onboarding_required === true,
             });
 
             if (!is_email_verified && userRole !== 'admin') {
-                navigate('/verify-otp', { state: { email: userEmail } });
+                navigate('/verify-otp', { replace: true, state: { email: userEmail } });
                 return res.data;
             }
 
@@ -103,6 +154,7 @@ export const AuthProvider = ({ children }) => {
         localStorage.removeItem('userRole');
         localStorage.removeItem('userId');
         localStorage.removeItem('verificationEmail');
+        localStorage.removeItem('otpPendingFromSignup');
         setToken(null);
         setRole(null);
         setUser(null);
@@ -115,7 +167,10 @@ export const AuthProvider = ({ children }) => {
         role,
         loading,
         login,
-        logout
+        logout,
+        refreshUser,
+        applyMeData,
+        markEmailVerified,
     };
 
     return (

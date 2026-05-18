@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import DashboardBrand from '../components/DashboardBrand';
 
 const Dashboard = () => {
     const { user } = useAuth();
@@ -64,7 +65,7 @@ const Dashboard = () => {
         return (
             <div className="flex flex-col items-center justify-center h-[60vh] space-y-4">
                 <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-                <p className="text-slate-500 font-black uppercase tracking-widest animate-pulse">Just a moment...</p>
+                <p className="text-slate-500 dark:text-slate-400 text-sm animate-pulse">Loading...</p>
             </div>
         );
     }
@@ -90,9 +91,12 @@ const Dashboard = () => {
             className="space-y-10 px-1 sm:px-0"
         >
             <header className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-                <div>
-                    <h1 className="text-3xl sm:text-4xl font-black text-slate-900 dark:text-white tracking-tight">Welcome Back!</h1>
-                    <p className="text-slate-500 dark:text-slate-400 font-medium">Everything you need to know at a glance</p>
+                <div className="flex items-start gap-3 min-w-0">
+                    <DashboardBrand linkTo="/dashboard" unlinked className="mt-0.5" />
+                    <div className="min-w-0">
+                    <h1 className="text-2xl sm:text-3xl font-semibold text-slate-900 dark:text-white">Dashboard</h1>
+                    <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">Your requests and quick actions</p>
+                    </div>
                 </div>
                 <button
                     onClick={() => navigate('/create-request')}
@@ -106,9 +110,9 @@ const Dashboard = () => {
             {/* Stats Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                 {[
-                    { label: 'Total Services', value: stats.total_requests, icon: Target, color: 'blue' },
-                    { label: 'Pending Tasks', value: stats.pending, icon: Clock, color: 'amber' },
-                    { label: 'Completed Jobs', value: stats.completed, icon: CheckCircle, color: 'emerald' }
+                    { label: 'Total requests', value: stats.total_requests, icon: Target, color: 'blue' },
+                    { label: 'Pending', value: stats.pending, icon: Clock, color: 'amber' },
+                    { label: 'Completed', value: stats.completed, icon: CheckCircle, color: 'emerald' }
                 ].map((s, i) => (
                     <motion.div
                         key={i}
@@ -118,8 +122,8 @@ const Dashboard = () => {
                         <div className={`absolute top-0 right-0 w-32 h-32 bg-${s.color}-500/10 rounded-full blur-3xl group-hover:bg-${s.color}-500/20 transition-colors`} />
                         <div className="flex items-start justify-between relative z-10">
                             <div>
-                                <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.2em] mb-2">{s.label}</p>
-                                <p className="text-4xl sm:text-5xl font-black text-slate-900 dark:text-white tracking-tighter">{s.value || 0}</p>
+                                <p className="text-sm text-slate-500 dark:text-slate-400 mb-1">{s.label}</p>
+                                <p className="text-3xl sm:text-4xl font-semibold text-slate-900 dark:text-white">{s.value || 0}</p>
                             </div>
                             <div className={`p-3 sm:p-4 bg-${s.color}-50 dark:bg-${s.color}-900/20 rounded-2xl`}>
                                 <s.icon className={`w-6 h-6 sm:w-8 h-8 text-${s.color}-600 dark:text-${s.color}-400`} />
@@ -133,7 +137,7 @@ const Dashboard = () => {
             <div className="grid lg:grid-cols-2 gap-8">
                 {/* Quick Actions */}
                 <motion.div variants={item} className="space-y-6">
-                    <h2 className="text-xs font-black text-slate-400 uppercase tracking-[0.3em] pl-4">Quick Actions</h2>
+                    <h2 className="text-sm font-semibold text-slate-600 dark:text-slate-400 pl-1">Quick actions</h2>
                     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
                         <button
                             onClick={() => navigate('/create-request')}
@@ -146,8 +150,8 @@ const Dashboard = () => {
                                 </div>
                                 <ArrowRight className="w-8 h-8 text-white/50 group-hover:translate-x-2 transition-transform" />
                             </div>
-                            <h3 className="text-xl sm:text-2xl font-black mb-1 relative z-10">Start Something New</h3>
-                            <p className="text-blue-100 font-medium relative z-10 text-sm">Find the perfect help in seconds</p>
+                            <h3 className="text-lg sm:text-xl font-semibold mb-1 relative z-10">New service request</h3>
+                            <p className="text-blue-100 relative z-10 text-sm">Describe what you need and get matched with providers</p>
                         </button>
 
                         <button
@@ -160,8 +164,8 @@ const Dashboard = () => {
                                 </div>
                                 <ArrowRight className="w-8 h-8 text-slate-200 dark:text-slate-700 group-hover:translate-x-2 transition-transform" />
                             </div>
-                            <h3 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white mb-1">My Orders</h3>
-                            <p className="text-slate-500 font-medium text-sm">Check your previous and active tasks</p>
+                            <h3 className="text-lg sm:text-xl font-semibold text-slate-900 dark:text-white mb-1">My requests</h3>
+                            <p className="text-slate-500 dark:text-slate-400 text-sm">View open and completed work</p>
                         </button>
                     </div>
                 </motion.div>
@@ -171,8 +175,8 @@ const Dashboard = () => {
                     <div className="w-20 h-20 sm:w-24 h-24 bg-blue-50 dark:bg-blue-900/10 rounded-full flex items-center justify-center mx-auto mb-6">
                         <TrendingUp className="w-10 h-10 sm:w-12 h-12 text-blue-600 animate-pulse" />
                     </div>
-                    <h3 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white mb-2">System Status</h3>
-                    <p className="text-slate-500 font-medium mb-8 text-sm">Everything is running smoothly. We're here to help!</p>
+                    <h3 className="text-lg sm:text-xl font-semibold text-slate-900 dark:text-white mb-2">Recent activity</h3>
+                    <p className="text-slate-500 dark:text-slate-400 mb-8 text-sm">Overview of your request volume</p>
                     <div className="flex gap-2 justify-center">
                         {[40, 70, 45, 90, 65, 80].map((h, i) => (
                             <div key={i} className="w-2.5 sm:w-3 bg-blue-600/20 dark:bg-blue-600/40 rounded-full h-16 sm:h-20 relative overflow-hidden">

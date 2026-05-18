@@ -5,6 +5,7 @@ from .models import NotificationItem
 def send_notification(user_id, message, type='info', payload=None):
     """
     Send a real-time notification to a specific user.
+    Returns the created NotificationItem id (for client deduplication).
     """
     channel_layer = get_channel_layer()
     group_name = f"user_{user_id}"
@@ -15,7 +16,7 @@ def send_notification(user_id, message, type='info', payload=None):
         raw_title = payload.get("title") or ""
     if not raw_title:
         raw_title = message or ""
-    NotificationItem.objects.create(
+    item = NotificationItem.objects.create(
         user_id=user_id,
         event_type=type,
         title=str(raw_title)[:200],
@@ -28,12 +29,14 @@ def send_notification(user_id, message, type='info', payload=None):
         'content': {
             'message': message,
             'type': type,
-            'payload': payload or {}
+            'notification_id': item.id,
+            'payload': payload or {},
         }
     }
 
-    print(f"DEBUG: Sending WS notification to {group_name}: {message}")
-    async_to_sync(channel_layer.group_send)(group_name, event)
+    if channel_layer:
+        async_to_sync(channel_layer.group_send)(group_name, event)
+    return item.id
 
 def notify_request_update(request_obj, message):
     # Notify the request owner
@@ -54,5 +57,24 @@ def notify_job_update(job_obj, message, recipient_user):
             'job_id': job_obj.id,
             'request_id': getattr(job_obj, 'request_id', None) or (job_obj.request.id if getattr(job_obj, 'request', None) else None),
             'status': job_obj.status,
+        },
+    )
+
+
+def notify_invoice_paid(invoice):
+    """Notify provider that an invoice was paid."""
+    job = invoice.job
+    provider_user = job.provider.user
+    title = invoice.job.request.title if job.request else 'Service'
+    send_notification(
+        user_id=provider_user.id,
+        message=f'Payment received for "{title}"',
+        type='invoice_paid',
+        payload={
+            'title': 'Invoice Paid',
+            'invoice_id': invoice.id,
+            'job_id': job.id,
+            'request_id': job.request_id if job.request_id else None,
+            'amount': str(invoice.total),
         },
     )

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import api from '../api';
 import { Search, Filter, Download, AlertCircle, User, FileText } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
+import { getErrorMessage } from '../utils/apiErrors';
 
 const AdminAuditLogs = () => {
     const [logs, setLogs] = useState([]);
@@ -28,8 +29,7 @@ const AdminAuditLogs = () => {
             const res = await api.get(`audit-logs/?${params.toString()}`);
             setLogs(res.data || []);
         } catch (err) {
-            showError('Failed to load audit logs');
-            console.error(err);
+            showError(getErrorMessage(err, 'Failed to load audit logs'));
         } finally {
             setLoading(false);
         }

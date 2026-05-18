@@ -30,6 +30,12 @@ export function getNotificationTarget({ type, payload = {}, userRole }) {
         case 'request_update':
             if (requestId) return `/dashboard/requests/${requestId}`;
             return null;
+        case 'invoice_paid': {
+            const invoiceId = p.invoice_id != null ? Number(p.invoice_id) : null;
+            if (invoiceId) return `/dashboard/invoices/${invoiceId}`;
+            if (role === 'provider') return '/dashboard/provider';
+            return '/dashboard/invoices';
+        }
         default:
             return null;
     }

@@ -6,21 +6,46 @@ import api from '../api';
 
 const WebSocketContext = createContext(null);
 
+const INITIAL_RECONNECT_MS = 3000;
+const MAX_RECONNECT_MS = 60000;
+const MAX_RECONNECT_ATTEMPTS = 12;
+const TOAST_DEDUPE_MS = 8000;
+
 export const WebSocketProvider = ({ children }) => {
     const { token, user } = useAuth();
-    const { success, info, error: showError } = useToast();
+    const { success, info } = useToast();
     const [socket, setSocket] = useState(null);
     const [lastMessage, setLastMessage] = useState(null);
     const [isConnected, setIsConnected] = useState(false);
     const [unreadByJob, setUnreadByJob] = useState({});
     const [totalUnread, setTotalUnread] = useState(0);
+    const [feedVersion, setFeedVersion] = useState(0);
 
-    // Ref to prevent multiple connections
     const wsRef = useRef(null);
+    const reconnectTimerRef = useRef(null);
+    const reconnectDelayRef = useRef(INITIAL_RECONNECT_MS);
+    const reconnectAttemptsRef = useRef(0);
+    const tokenRef = useRef(token);
+    const userIdRef = useRef(user?.id);
+    const toastHandlersRef = useRef({ success, info });
+    const recentToastKeysRef = useRef(new Map());
+    const connectRef = useRef(null);
+
+    useEffect(() => {
+        tokenRef.current = token;
+    }, [token]);
+
+    useEffect(() => {
+        userIdRef.current = user?.id;
+    }, [user?.id]);
+
+    useEffect(() => {
+        toastHandlersRef.current = { success, info };
+    }, [success, info]);
 
     useEffect(() => {
         const handleInteraction = () => {
-            import('../utils/sound').then(mod => mod.warmAudioContext());
+            import('../utils/sound').then((mod) => mod.warmAudioContext());
             window.removeEventListener('click', handleInteraction);
             window.removeEventListener('touchstart', handleInteraction);
         };
@@ -33,15 +58,13 @@ export const WebSocketProvider = ({ children }) => {
     }, []);
 
     const refreshUnreadSummary = useCallback(async () => {
-        if (!token) return;
+        if (!tokenRef.current) return;
         try {
             const [feedRes, msgRes] = await Promise.all([
                 api.get('notifications/feed/'),
                 api.get('messages/unread_summary/'),
             ]);
-            // Use combined count from feed (NotificationItem + chat messages)
             setTotalUnread(Number(feedRes.data?.unread_count || 0));
-            // Per-job unread breakdown from messages endpoint
             const jobs = Array.isArray(msgRes.data?.jobs) ? msgRes.data.jobs : [];
             const map = {};
             jobs.forEach((row) => {
@@ -49,59 +72,140 @@ export const WebSocketProvider = ({ children }) => {
             });
             setUnreadByJob(map);
         } catch (err) {
-            console.error('Failed to refresh unread summary', err);
+            if (import.meta.env.DEV) {
+                console.warn('Failed to refresh unread summary', err);
+            }
         }
-    }, [token]);
+    }, []);
+
+    const bumpFeed = useCallback(() => {
+        setFeedVersion((v) => v + 1);
+    }, []);
 
     const markJobRead = useCallback(async (jobId) => {
         if (!jobId) return;
         try {
             await api.post('messages/mark_read/', { job_id: jobId });
             await refreshUnreadSummary();
+            bumpFeed();
         } catch (err) {
-            console.error('Failed to mark job as read', err);
+            if (import.meta.env.DEV) {
+                console.warn('Failed to mark job as read', err);
+            }
         }
-    }, [refreshUnreadSummary]);
+    }, [refreshUnreadSummary, bumpFeed]);
 
     const markNotificationRead = useCallback(async (id) => {
         if (!id) return;
         try {
             await api.post('notifications/read/', { id });
             await refreshUnreadSummary();
+            bumpFeed();
         } catch (err) {
-            console.error('Failed to mark notification as read', err);
-        }
-    }, [refreshUnreadSummary]);
-
-    useEffect(() => {
-        // Connect only if we have a token and user
-        if (token && user && !socket) {
-            connect();
-            refreshUnreadSummary();
-        } else if (!token) {
-            setUnreadByJob({});
-            setTotalUnread(0);
-        }
-
-        // Clean up on unmount or logout
-        return () => {
-            if (!token && socket) {
-                disconnect();
+            if (import.meta.env.DEV) {
+                console.warn('Failed to mark notification read', err);
             }
-        };
-    }, [token, user, refreshUnreadSummary]);
+        }
+    }, [refreshUnreadSummary, bumpFeed]);
 
-    const connect = () => {
-        if (wsRef.current) return; // Already connecting/connected
+    const shouldShowToast = useCallback((data) => {
+        const key = data.notification_id
+            ? `id:${data.notification_id}`
+            : `${data.type || 'info'}:${String(data.message || '').slice(0, 120)}`;
+        const now = Date.now();
+        const seen = recentToastKeysRef.current;
+        const last = seen.get(key);
+        if (last && now - last < TOAST_DEDUPE_MS) {
+            return false;
+        }
+        seen.set(key, now);
+        if (seen.size > 100) {
+            for (const [k, ts] of seen) {
+                if (now - ts > TOAST_DEDUPE_MS) seen.delete(k);
+            }
+        }
+        return true;
+    }, []);
 
-        const wsUrl = buildWsUrl('/ws/notifications/', token);
-        console.log("Connecting to WebSocket:", wsUrl);
+    const handleNotification = useCallback((data) => {
+        setLastMessage(data);
+        bumpFeed();
+        refreshUnreadSummary();
 
+        if (!shouldShowToast(data)) {
+            return;
+        }
+
+        const { message, type } = data;
+        const { success: showSuccess, info: showInfo } = toastHandlersRef.current;
+        import('../utils/sound').then((mod) => mod.playNotificationSound());
+
+        switch (type) {
+            case 'request_update':
+                showSuccess(message);
+                break;
+            case 'job_update':
+                showInfo(message);
+                break;
+            case 'new_job':
+                showSuccess(`New job: ${message}`);
+                break;
+            case 'invoice_paid':
+                showSuccess(message || 'Invoice paid');
+                break;
+            case 'chat_message':
+                showInfo(`New message: ${String(message || '').substring(0, 30)}...`);
+                break;
+            default:
+                showInfo(message);
+        }
+    }, [shouldShowToast, refreshUnreadSummary, bumpFeed]);
+
+    const clearReconnectTimer = useCallback(() => {
+        if (reconnectTimerRef.current) {
+            clearTimeout(reconnectTimerRef.current);
+            reconnectTimerRef.current = null;
+        }
+    }, []);
+
+    const scheduleReconnect = useCallback(() => {
+        if (!tokenRef.current) return;
+        if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
+            if (import.meta.env.DEV) {
+                console.warn('WebSocket: stopped reconnecting after repeated failures');
+            }
+            return;
+        }
+        clearReconnectTimer();
+        const delay = reconnectDelayRef.current;
+        reconnectAttemptsRef.current += 1;
+        reconnectDelayRef.current = Math.min(delay * 2, MAX_RECONNECT_MS);
+        reconnectTimerRef.current = setTimeout(() => {
+            connectRef.current?.();
+        }, delay);
+    }, [clearReconnectTimer]);
+
+    const disconnect = useCallback(() => {
+        clearReconnectTimer();
+        reconnectAttemptsRef.current = MAX_RECONNECT_ATTEMPTS;
+        if (wsRef.current) {
+            wsRef.current.close();
+            wsRef.current = null;
+        }
+        setIsConnected(false);
+        setSocket(null);
+    }, [clearReconnectTimer]);
+
+    const connect = useCallback(() => {
+        if (!tokenRef.current || wsRef.current) return;
+
+        const wsUrl = buildWsUrl('/ws/notifications/', tokenRef.current);
         const ws = new WebSocket(wsUrl);
         wsRef.current = ws;
 
         ws.onopen = () => {
-            console.log("WebSocket connected");
+            reconnectDelayRef.current = INITIAL_RECONNECT_MS;
+            reconnectAttemptsRef.current = 0;
             setIsConnected(true);
             setSocket(ws);
         };
@@ -109,74 +213,68 @@ export const WebSocketProvider = ({ children }) => {
         ws.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
-                console.log("WebSocket message:", data);
-                setLastMessage(data);
                 handleNotification(data);
             } catch (e) {
-                console.error("WebSocket message error:", e);
+                if (import.meta.env.DEV) {
+                    console.warn('WebSocket message parse error:', e);
+                }
             }
         };
 
         ws.onclose = () => {
-            console.log("WebSocket disconnected");
             setIsConnected(false);
             setSocket(null);
             wsRef.current = null;
-
-            // Simple reconnect logic (optional)
-            if (token) {
-                setTimeout(connect, 3000);
+            if (tokenRef.current && reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
+                scheduleReconnect();
             }
         };
 
-        ws.onerror = (err) => {
-            console.error("WebSocket error:", err);
+        ws.onerror = () => {
             ws.close();
         };
-    };
+    }, [handleNotification, scheduleReconnect]);
 
-    const disconnect = () => {
-        if (wsRef.current) {
-            wsRef.current.close();
-            wsRef.current = null;
+    connectRef.current = connect;
+
+    useEffect(() => {
+        if (token && user?.id) {
+            reconnectAttemptsRef.current = 0;
+            reconnectDelayRef.current = INITIAL_RECONNECT_MS;
+            connect();
+            refreshUnreadSummary();
+        } else {
+            disconnect();
+            setUnreadByJob({});
+            setTotalUnread(0);
         }
-    };
-
-    const handleNotification = (data) => {
-        // Handle different notification types
-        // Expected payload: { message: "...", type: "...", payload: {...} }
-        const { message, type } = data;
-
-        // Play sound for all real-time events
-        import('../utils/sound').then(mod => mod.playNotificationSound());
-
-        switch (type) {
-            case 'request_update':
-                success(message); // Green toast for updates
-                break;
-            case 'job_update':
-                info(message); // Blue toast for job info
-                break;
-            case 'new_job':
-                success("🚨 New Job Alert: " + message);
-                break;
-            case 'chat_message':
-                // We don't toast chat messages if we are IN the chat, but global toaster is fine for now
-                info(`New message: ${String(message || '').substring(0, 30)}...`);
-                refreshUnreadSummary();
-                break;
-            default:
-                info(message);
-        }
-    };
+        return () => {
+            clearReconnectTimer();
+            if (wsRef.current) {
+                wsRef.current.close();
+                wsRef.current = null;
+            }
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [token, user?.id]);
 
     return (
-        <WebSocketContext.Provider value={{ socket, lastMessage, isConnected, totalUnread, unreadByJob, refreshUnreadSummary, markJobRead, markNotificationRead }}>
+        <WebSocketContext.Provider
+            value={{
+                socket,
+                lastMessage,
+                isConnected,
+                totalUnread,
+                unreadByJob,
+                feedVersion,
+                refreshUnreadSummary,
+                markJobRead,
+                markNotificationRead,
+            }}
+        >
             {children}
         </WebSocketContext.Provider>
     );
 };
 
-export const useWebSocket = () => {
-    return useContext(WebSocketContext);
-};
+export const useWebSocket = () => useContext(WebSocketContext);

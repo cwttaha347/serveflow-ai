@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-    ArrowRight, ArrowLeft, MapPin, Calendar, DollarSign, Upload,
+    ArrowRight, ArrowLeft, MapPin, Calendar, Upload,
     Wand2, Shield, Star, CheckCircle, AlertCircle, Camera,
     ScanLine, Lock, Eye, Check
 } from 'lucide-react';
@@ -9,6 +9,14 @@ import { useToast } from '../context/ToastContext';
 import api from '../api';
 import { useSettings } from '../context/SettingsContext';
 import { formatMoney } from '../utils/money';
+import { prepareImageForUpload } from '../utils/imageUpload';
+import {
+    getImagePrepErrorMessage,
+    getImageUploadErrorMessage,
+    IMAGE_RESIZED_TOAST,
+} from '../utils/uploadErrors';
+import { dedupeCategories } from '../utils/categoryOptions';
+import { cacheCategories, loadCachedCategories } from '../utils/categoriesCache';
 
 const CreateRequest = () => {
     const navigate = useNavigate();
@@ -51,7 +59,7 @@ const CreateRequest = () => {
             return backendMsg || 'Unsupported image format. Please use JPG, PNG, WEBP, HEIC, or HEIF.';
         }
         if (code === 'FILE_TOO_LARGE') {
-            return backendMsg || 'Image is too large. Please capture a smaller photo.';
+            return getImageUploadErrorMessage(err, backendMsg || 'Image exceeds the upload limit.');
         }
         if (code === 'AI_TIMEOUT') {
             return backendMsg || 'AI analysis timed out. Please retry in a moment.';
@@ -60,7 +68,7 @@ const CreateRequest = () => {
             return backendMsg || 'AI service is temporarily unavailable. Please try again shortly.';
         }
         if (status === 413) {
-            return 'Image is too large for upload. Please retake with lower resolution.';
+            return getImageUploadErrorMessage(err);
         }
         if (status === 415) {
             const detail = String(backendMsg || payload.detail || '').toLowerCase();
@@ -90,12 +98,21 @@ const CreateRequest = () => {
     };
 
     const handleImageUpload = async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
+        const rawFile = e.target.files[0];
+        if (!rawFile) return;
+        if (fileInputRef.current) {
+            fileInputRef.current.value = '';
+        }
 
-        // Security Check 1: Client-side file validation
-        if (file.size > 10 * 1024 * 1024) {
-            showError("Security Alert: File exceeds safe size limit (10MB).");
+        let file;
+        try {
+            const prepared = await prepareImageForUpload(rawFile);
+            file = prepared.file;
+            if (prepared.compressed) {
+                showWarning(IMAGE_RESIZED_TOAST);
+            }
+        } catch (prepErr) {
+            showError(getImagePrepErrorMessage(prepErr));
             return;
         }
 
@@ -192,9 +209,19 @@ const CreateRequest = () => {
     const [categories, setCategories] = useState([]);
 
     useEffect(() => {
-        api.get('categories/').then(res => {
-            setCategories(res.data.filter(c => c.is_active));
-        }).catch(err => console.error('Failed to load categories', err));
+        const cached = loadCachedCategories();
+        if (cached?.length) {
+            setCategories(dedupeCategories(cached.filter((c) => c.is_active)));
+        }
+        api.get('categories/')
+            .then((res) => {
+                const list = dedupeCategories((res.data || []).filter((c) => c.is_active));
+                setCategories(list);
+                cacheCategories(list);
+            })
+            .catch((err) => {
+                if (!cached?.length) console.error('Failed to load categories', err);
+            });
     }, []);
 
     const fetchRecommendations = async () => {
@@ -405,7 +432,7 @@ const CreateRequest = () => {
                                         </div>
                                         <div>
                                             <h3 className="text-2xl font-black text-white mb-2">Visual Auto-Scan</h3>
-                                            <p className="text-blue-100 text-sm font-medium">Upload photo. AI detects issue & fills details instantly.</p>
+                                            <p className="text-blue-100 text-sm font-medium">Upload photo. Large images are compressed automatically (max 10MB).</p>
                                         </div>
                                         <div className="flex items-center gap-2 px-4 py-2 bg-black/20 rounded-lg text-xs font-bold text-white uppercase tracking-widest mt-4">
                                             <Lock className="w-3 h-3" /> Secure Analysis
@@ -558,6 +585,21 @@ const CreateRequest = () => {
                                         />
                                     </div>
                                 </div>
+                                <div className="space-y-2">
+                                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest">My budget (optional)</label>
+                                    <p className="text-xs text-slate-500">Set a max budget now, or leave blank for the AI estimate on the next step.</p>
+                                    <div className="relative">
+                                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm text-slate-500">{settings.currency_symbol || '$'}</span>
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            value={formData.budget}
+                                            onChange={(e) => setFormData({ ...formData, budget: e.target.value })}
+                                            className="w-full pl-10 pr-6 py-4 bg-slate-900/50 border border-slate-700 rounded-xl text-white focus:border-blue-500 outline-none"
+                                            placeholder="Leave blank for AI suggestion"
+                                        />
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     )}
@@ -590,20 +632,20 @@ const CreateRequest = () => {
 
                             {snapshot?.analysis && (
                                 <div className="p-4 rounded-xl bg-slate-900/70 border border-slate-700 space-y-3">
-                                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest">Your budget (optional)</label>
+                                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest">My budget (optional)</label>
                                     <p className="text-xs text-slate-500">
                                         Suggested {snapshot.analysis.budget_recommended != null ? `${formatMoney(snapshot.analysis.budget_recommended, settings)}` : '—'}
                                         {snapshot.analysis.budget_floor != null ? ` · minimum ${formatMoney(snapshot.analysis.budget_floor, settings)}` : ''}
                                     </p>
                                     <div className="relative">
-                                        <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
+                                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm text-slate-500">{settings.currency_symbol || '$'}</span>
                                         <input
                                             type="number"
                                             min={snapshot.analysis.budget_floor != null ? Number(snapshot.analysis.budget_floor) : undefined}
                                             step="0.01"
                                             value={formData.budget}
                                             onChange={(e) => setFormData({ ...formData, budget: e.target.value })}
-                                            className="w-full pl-12 pr-6 py-3 bg-slate-900/50 border border-slate-700 rounded-xl text-white focus:border-blue-500 outline-none"
+                                            className="w-full pl-10 pr-6 py-3 bg-slate-900/50 border border-slate-700 rounded-xl text-white focus:border-blue-500 outline-none"
                                             placeholder="Leave blank to use suggested budget"
                                         />
                                     </div>

@@ -82,8 +82,9 @@ const Register = () => {
                 localStorage.setItem('userId', String(reg.data.id || ''));
             }
 
-            // OTP email is sent once from the server on user creation (do not call request-otp here — it would send a second code).
+            // Server sends OTP on signup; verify-otp page must not request a second code immediately.
             localStorage.setItem('verificationEmail', formData.email);
+            localStorage.setItem('otpPendingFromSignup', formData.email);
             success('Registration successful. Verify your email to continue.');
             window.location.assign('/verify-otp');
         } catch (error) {

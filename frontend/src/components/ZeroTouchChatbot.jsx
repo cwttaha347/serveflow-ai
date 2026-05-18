@@ -7,6 +7,10 @@ import { clearDraft, getDraft, markResumeAfterAuth, saveDraft, shouldResumeAfter
 import { useSettings } from '../context/SettingsContext';
 import { useAuth } from '../context/AuthContext';
 import { formatMoney } from '../utils/money';
+import { dedupeCategories, dedupeOptions, mergeCategoryQuickOptions } from '../utils/categoryOptions';
+import { cacheCategories, loadCachedCategories } from '../utils/categoriesCache';
+
+const SEND_DEBOUNCE_MS = 450;
 
 const ZeroTouchChatbot = () => {
     const { user } = useAuth();
@@ -43,8 +47,12 @@ const ZeroTouchChatbot = () => {
     const [error, setError] = useState('');
     const [recoveryHint, setRecoveryHint] = useState(false);
     const formRef = useRef(form);
+    const sendDebounceRef = useRef(null);
+    const intentInFlightRef = useRef(false);
+    const budgetPromptShownRef = useRef(false);
 
     const token = localStorage.getItem('token');
+    const currencySymbol = settings?.currency_symbol || '$';
     const isAuthPage = useMemo(
         () => ['/login', '/register', '/forgot-password', '/reset-password', '/verify-otp'].includes(location.pathname),
         [location.pathname]
@@ -68,9 +76,19 @@ const ZeroTouchChatbot = () => {
     }, []);
 
     useEffect(() => {
+        const cached = loadCachedCategories();
+        if (cached?.length) {
+            setCategories(dedupeCategories(cached.filter((c) => c.is_active)));
+        }
         api.get('categories/')
-            .then((res) => setCategories((res.data || []).filter((c) => c.is_active)))
-            .catch(() => setCategories([]));
+            .then((res) => {
+                const list = dedupeCategories((res.data || []).filter((c) => c.is_active));
+                setCategories(list);
+                cacheCategories(list);
+            })
+            .catch(() => {
+                if (!cached?.length) setCategories([]);
+            });
     }, []);
 
     useEffect(() => {
@@ -91,6 +109,7 @@ const ZeroTouchChatbot = () => {
                 category_id: draft.category_id || '',
                 preferred_date: draft.preferred_date || '',
                 mode: draft.mode_preference || '',
+                custom_budget: draft.custom_budget || '',
             }));
             addAssistantMessage('Welcome back. Your draft is restored. Final confirm is ready in chat.', [
                 { label: 'Publish now', value: 'publish', action: 'publish' },
@@ -156,7 +175,7 @@ const ZeroTouchChatbot = () => {
 
             const options = [];
             if (!next.category_id) {
-                options.push(...buildCategoryOptions());
+                options.push(...mergeCategoryQuickOptions([], buildCategoryOptions(), '', { skipCategoryGrid: false }));
             }
             const canPrepareDraft = !!(next.title && next.description && next.category_id);
             if (canPrepareDraft) {
@@ -174,9 +193,28 @@ const ZeroTouchChatbot = () => {
         [buildCategoryOptions]
     );
 
+    const promptBudgetOnce = useCallback(() => {
+        if (budgetPromptShownRef.current) return;
+        budgetPromptShownRef.current = true;
+        addAssistantMessage(
+            `Optional: set your max budget (${currencySymbol}) in the panel below, or leave blank to use the AI estimate.`
+        );
+    }, [addAssistantMessage, currencySymbol]);
+
+    const publishReadyOptions = useCallback(
+        () => [
+            { label: 'Auto mode', value: 'auto', action: 'set_mode' },
+            { label: 'Manual mode', value: 'manual', action: 'set_mode' },
+            { label: 'Broadcast mode', value: 'broadcast', action: 'set_mode' },
+            { label: token ? 'Confirm & publish' : 'Login to publish', value: 'publish', action: 'publish' },
+        ],
+        [token]
+    );
+
     const runIntent = async (messageOverride) => {
         const outboundMessage = (messageOverride ?? chatMessage).trim();
-        if (!outboundMessage) return;
+        if (!outboundMessage || intentInFlightRef.current) return;
+        intentInFlightRef.current = true;
         const userMessageId = `m-${messageCounter.current++}`;
         setMessages((prev) => [...prev, { id: userMessageId, role: 'user', text: outboundMessage }]);
         setChatMessage('');
@@ -198,6 +236,7 @@ const ZeroTouchChatbot = () => {
             } else {
                 addAssistantMessage('Mode set to manual.');
             }
+            intentInFlightRef.current = false;
             return;
         }
         if (autoAliases.includes(normalizedInput)) {
@@ -205,6 +244,7 @@ const ZeroTouchChatbot = () => {
             const draft = getDraft();
             if (draft) saveDraft({ ...draft, mode_preference: 'auto' });
             addAssistantMessage('Mode set to auto.');
+            intentInFlightRef.current = false;
             return;
         }
         if (broadcastAliases.includes(normalizedInput)) {
@@ -212,14 +252,19 @@ const ZeroTouchChatbot = () => {
             const draft = getDraft();
             if (draft) saveDraft({ ...draft, mode_preference: 'broadcast' });
             addAssistantMessage('Mode set to broadcast.');
+            intentInFlightRef.current = false;
             return;
         }
         if (publishAliases.includes(normalizedInput)) {
             if (!snapshot) {
                 const prepared = await generateSnapshot();
-                if (!prepared) return;
+                if (!prepared) {
+                    intentInFlightRef.current = false;
+                    return;
+                }
             }
             await publish();
+            intentInFlightRef.current = false;
             return;
         }
         setBusy(true);
@@ -229,13 +274,19 @@ const ZeroTouchChatbot = () => {
             const res = await api.post('chatbot/intent/', {
                     message: outboundMessage,
                     context: {
-                        form,
+                        form: {
+                            ...form,
+                            custom_budget: form.custom_budget || null,
+                        },
                         available_categories: categories.map((c) => ({ id: c.id, name: c.name })),
-                        conversation_history: messages.slice(-8).map((m) => ({ role: m.role, text: m.text })),
+                        conversation_history: messages.slice(-6).map((m) => ({ role: m.role, text: m.text })),
                     },
             }, { timeout: 28000 });
             const data = res.data;
             const mappedCategory = resolveCategoryId(data.suggested_category);
+            const suggestedCategoryName = mappedCategory
+                ? categories.find((c) => String(c.id) === String(mappedCategory))?.name
+                : '';
             const nextForm = {
                 ...form,
                 // AI wins: use suggested title/description as the canonical request fields.
@@ -244,7 +295,7 @@ const ZeroTouchChatbot = () => {
                 rewritten_description: data.suggested_description || data.summary || outboundMessage,
                 mode: data.preferred_mode || form.mode,
                 urgency: data.urgency || form.urgency,
-                category_id: form.category_id || mappedCategory || form.category_id,
+                category_id: mappedCategory || form.category_id || '',
             };
             const suggestedDate = toDateTimeLocalValue(data.preferred_date_iso);
             if (suggestedDate) {
@@ -253,6 +304,10 @@ const ZeroTouchChatbot = () => {
             const suggestedProvider = Number(data.suggested_provider_id) || null;
             if (suggestedProvider) {
                 nextForm.selected_provider = suggestedProvider;
+            }
+            const suggestedBudget = data.suggested_budget;
+            if (suggestedBudget != null && Number(suggestedBudget) > 0) {
+                nextForm.custom_budget = String(suggestedBudget);
             }
             // Best-effort title if still missing.
             if (!String(nextForm.title || '').trim() && String(nextForm.description || '').trim()) {
@@ -263,8 +318,15 @@ const ZeroTouchChatbot = () => {
                 addAssistantMessage('I inferred a preferred date/time from your message and prefilled it. Please confirm or edit before publish.');
             }
             const defaultOptions = Array.isArray(data.quick_options) ? data.quick_options : [];
-            const requiredCategory = !mappedCategory && !String(nextForm.category_id || '').trim();
-            const options = requiredCategory ? [...defaultOptions, ...buildCategoryOptions()] : defaultOptions;
+            const options = dedupeOptions(
+                mergeCategoryQuickOptions(defaultOptions, buildCategoryOptions(), mappedCategory, {
+                    skipCategoryGrid: Boolean(mappedCategory),
+                })
+            );
+            let assistantReply = data.assistant_reply || 'I understood your request and prepared next steps.';
+            if (mappedCategory && suggestedCategoryName) {
+                assistantReply = `Category: ${suggestedCategoryName}. Review budget (optional), then confirm to publish.`;
+            }
             const canPrepareDraft = !!(
                 String(nextForm.description || '').trim() &&
                 String(nextForm.title || '').trim() &&
@@ -287,6 +349,7 @@ const ZeroTouchChatbot = () => {
                 saveDraft({
                     ...draft,
                     rewritten_description: nextForm.rewritten_description,
+                    custom_budget: nextForm.custom_budget || '',
                 });
                 setSnapshot(draft.snapshot_data);
                 setForm((prev) => ({
@@ -297,12 +360,8 @@ const ZeroTouchChatbot = () => {
                     category_id: String(draft.category_id),
                     mode: draft.mode_preference || prev.mode,
                 }));
-                await streamAssistantMessage('Draft is ready. Choose your assignment mode, then confirm to publish.', [
-                    { label: 'Manual mode', value: 'manual', action: 'set_mode' },
-                    { label: 'Auto mode', value: 'auto', action: 'set_mode' },
-                    { label: 'Broadcast mode', value: 'broadcast', action: 'set_mode' },
-                    { label: token ? 'Final confirm publish' : 'Login to continue', value: 'publish', action: 'publish' },
-                ]);
+                promptBudgetOnce();
+                await streamAssistantMessage('Draft is ready. Set mode and confirm to publish.', publishReadyOptions());
                 if ((nextForm.mode || draft.mode_preference || resDraft.data?.draft?.snapshot_data?.recommended_mode) === 'manual') {
                     const topProvider = (resDraft.data?.draft?.snapshot_data?.providers || [])[0];
                     if (topProvider?.provider_id) {
@@ -319,10 +378,7 @@ const ZeroTouchChatbot = () => {
                 }
             } else {
                 // Only show the AI reply when we can't auto-draft yet
-                await streamAssistantMessage(
-                    data.assistant_reply || 'I understood your request and prepared next steps.',
-                    options
-                );
+                await streamAssistantMessage(assistantReply, options);
             }
             setRecoveryHint(false);
         } catch (e) {
@@ -331,7 +387,9 @@ const ZeroTouchChatbot = () => {
             await streamAssistantMessage(
                 fallbackResult.reply ||
                     'I could not reach AI right now, but your request details are captured and I can continue.',
-                fallbackResult.options.length ? fallbackResult.options : buildCategoryOptions()
+                fallbackResult.options.length
+                    ? fallbackResult.options
+                    : dedupeOptions(mergeCategoryQuickOptions([], buildCategoryOptions(), '', { skipCategoryGrid: false }))
             );
             setRecoveryHint(true);
             const statusCode = e?.response?.status;
@@ -341,19 +399,35 @@ const ZeroTouchChatbot = () => {
                 setError('AI response timed out. Your details are saved; try Send again or continue with draft options.');
             }
         } finally {
+            intentInFlightRef.current = false;
             setBusy(false);
         }
     };
 
+    const scheduleRunIntent = (messageOverride) => {
+        if (sendDebounceRef.current) {
+            window.clearTimeout(sendDebounceRef.current);
+        }
+        sendDebounceRef.current = window.setTimeout(() => {
+            sendDebounceRef.current = null;
+            runIntent(messageOverride);
+        }, SEND_DEBOUNCE_MS);
+    };
+
+    useEffect(
+        () => () => {
+            if (sendDebounceRef.current) {
+                window.clearTimeout(sendDebounceRef.current);
+            }
+        },
+        []
+    );
+
     const generateSnapshot = async () => {
         // Skip if draft already generated
         if (snapshot) {
-            await streamAssistantMessage('Draft already prepared. Choose assignment mode, then confirm to publish.', [
-                { label: 'Manual mode', value: 'manual', action: 'set_mode' },
-                { label: 'Auto mode', value: 'auto', action: 'set_mode' },
-                { label: 'Broadcast mode', value: 'broadcast', action: 'set_mode' },
-                { label: token ? 'Final confirm publish' : 'Login to continue', value: 'publish', action: 'publish' },
-            ]);
+            promptBudgetOnce();
+            await streamAssistantMessage('Draft already prepared. Set mode and confirm to publish.', publishReadyOptions());
             return true;
         }
         const normalized = { ...form };
@@ -391,12 +465,8 @@ const ZeroTouchChatbot = () => {
                 category_id: normalized.category_id,
                 mode: draft.mode_preference || prev.mode,
             }));
-            await streamAssistantMessage('Draft is ready. Choose assignment mode, then final confirm.', [
-                { label: 'Manual mode', value: 'manual', action: 'set_mode' },
-                { label: 'Auto mode', value: 'auto', action: 'set_mode' },
-                { label: 'Broadcast mode', value: 'broadcast', action: 'set_mode' },
-                { label: token ? 'Final confirm publish' : 'Login to continue', value: 'publish', action: 'publish' },
-            ]);
+            promptBudgetOnce();
+            await streamAssistantMessage('Draft is ready. Set mode and confirm to publish.', publishReadyOptions());
             return true;
         } catch (e) {
             setError(e.response?.data?.error || 'Failed to prepare draft.');
@@ -517,7 +587,12 @@ const ZeroTouchChatbot = () => {
             const byName = categories.find((c) => String(c.name || '').toLowerCase() === String(option.value || '').toLowerCase())?.id;
             const resolvedId = directId || byName || option.value;
             const selectedName = categories.find((c) => String(c.id) === String(resolvedId))?.name || String(option.label || 'selected category');
-            setForm((prev) => ({ ...prev, category_id: String(resolvedId) }));
+            const next = { ...formRef.current, category_id: String(resolvedId) };
+            setForm(next);
+            if (next.title && next.description) {
+                await generateSnapshot();
+                return;
+            }
             addAssistantMessage(`Category set to ${selectedName}.`, [
                 { label: 'Prepare draft now', value: 'prepare_draft', action: 'prepare_draft' },
             ]);
@@ -630,7 +705,11 @@ const ZeroTouchChatbot = () => {
                                                 <button
                                                     key={`${msg.id}-opt-${idx}`}
                                                     onClick={() => handleOptionSelect(msg.id, opt)}
-                                                    className="rounded-full border border-blue-400/40 bg-blue-500/20 px-2 py-1 text-xs hover:bg-blue-500/30"
+                                                    className={`rounded-full border px-2 py-1 text-xs hover:bg-blue-500/30 ${
+                                                        opt.suggested || String(opt.label || '').startsWith('Suggested:')
+                                                            ? 'border-emerald-400/60 bg-emerald-500/25 font-semibold'
+                                                            : 'border-blue-400/40 bg-blue-500/20'
+                                                    }`}
                                                 >
                                                     {opt.label}
                                                 </button>
@@ -669,7 +748,7 @@ const ZeroTouchChatbot = () => {
                                     disabled={busy}
                                 />
                                 <button
-                                    onClick={() => runIntent()}
+                                    onClick={() => scheduleRunIntent()}
                                     disabled={busy || !chatMessage.trim()}
                                     className="rounded-xl bg-slate-700 px-3 py-2 text-sm font-semibold hover:bg-slate-600 disabled:opacity-60"
                                 >
@@ -697,16 +776,19 @@ const ZeroTouchChatbot = () => {
                                     Based on category rate card + {snapshot.analysis?.budget_floor !== snapshot.analysis?.budget_recommended ? 'historical job data' : 'base pricing formula'}
                                 </p>
                                 <div className="pt-2 space-y-1">
-                                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Override budget (optional)</label>
-                                    <input
-                                        type="number"
-                                        step="0.01"
-                                        min={snapshot.analysis?.budget_floor != null ? Number(snapshot.analysis.budget_floor) : undefined}
-                                        value={form.custom_budget}
-                                        onChange={(e) => setForm((prev) => ({ ...prev, custom_budget: e.target.value }))}
-                                        className="w-full rounded-lg bg-slate-900 border border-slate-600 px-2 py-1.5 text-xs"
-                                        placeholder={`Default ${formatMoney(snapshot.analysis?.budget_recommended || 0, settings)}`}
-                                    />
+                                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">My budget (optional)</label>
+                                    <motion.div layout className="relative">
+                                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-slate-400">{currencySymbol}</span>
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            min={snapshot.analysis?.budget_floor != null ? Number(snapshot.analysis.budget_floor) : undefined}
+                                            value={form.custom_budget}
+                                            onChange={(e) => setForm((prev) => ({ ...prev, custom_budget: e.target.value }))}
+                                            className="w-full rounded-lg bg-slate-900 border border-slate-600 px-2 py-1.5 text-xs pl-7"
+                                            placeholder={`Suggested ${formatMoney(snapshot.analysis?.budget_recommended || 0, settings)}`}
+                                        />
+                                    </motion.div>
                                 </div>
                             </div>
                         )}

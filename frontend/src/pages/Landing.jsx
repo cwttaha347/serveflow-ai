@@ -4,6 +4,7 @@ import { Zap, Shield, Globe, Star, CheckCircle, User, ArrowRight, Play, Menu, X,
 import Hero3D from '../components/Hero3D';
 import api from '../api';
 import { useSettings } from '../context/SettingsContext';
+import { resolveMediaUrl } from '../utils/mediaUrl';
 
 const Landing = () => {
     const { settings } = useSettings();
@@ -268,7 +269,7 @@ const Landing = () => {
                                 >
                                     <div className="aspect-video relative overflow-hidden">
                                         <img
-                                            src={category.image || `https://images.unsplash.com/photo-1581578731548-c64695cc6958?auto=format&fit=crop&q=80&w=800`}
+                                            src={resolveMediaUrl(category.image) || `https://images.unsplash.com/photo-1581578731548-c64695cc6958?auto=format&fit=crop&q=80&w=800`}
                                             alt={category.name}
                                             className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
                                         />

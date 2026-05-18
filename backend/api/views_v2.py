@@ -810,20 +810,84 @@ class ChatbotIntentView(APIView):
     def _build_default_options(self, category_name, available_categories, can_prepare_draft):
         options = []
         if not category_name and available_categories:
+            seen = set()
             for cat in available_categories[:6]:
                 cid = str(cat.get("id", "")).strip()
                 name = str(cat.get("name", "")).strip()
-                if cid and name:
+                if cid and name and cid not in seen:
+                    seen.add(cid)
                     options.append({"label": name, "value": cid, "action": "choose_category"})
-        options.extend([
-            {"label": "Auto mode", "value": "auto", "action": "set_mode"},
-            {"label": "Manual mode", "value": "manual", "action": "set_mode"},
-        ])
+        elif category_name and available_categories:
+            for cat in available_categories:
+                if str(cat.get("name", "")).strip().lower() == str(category_name).strip().lower():
+                    cid = str(cat.get("id", "")).strip()
+                    if cid:
+                        options.append({
+                            "label": f"Suggested: {cat.get('name', category_name)}",
+                            "value": cid,
+                            "action": "choose_category",
+                        })
+                    break
         if can_prepare_draft:
             options.append({"label": "Prepare draft now", "value": "prepare_draft", "action": "prepare_draft"})
+        elif not category_name:
+            options.extend([
+                {"label": "Auto mode", "value": "auto", "action": "set_mode"},
+                {"label": "Manual mode", "value": "manual", "action": "set_mode"},
+            ])
         return options[:6]
 
-    def _normalize_optional_slots(self, parsed):
+    def _prune_category_quick_options(self, quick_options, category_name, available_categories):
+        """When category is inferred, drop redundant category grid chips (keep at most one suggested)."""
+        if not category_name or not isinstance(quick_options, list):
+            return quick_options
+        suggested_cid = ""
+        for cat in available_categories or []:
+            if str(cat.get("name", "")).strip().lower() == str(category_name).strip().lower():
+                suggested_cid = str(cat.get("id", "")).strip()
+                break
+        pruned = []
+        seen_cat = set()
+        for opt in quick_options:
+            if not isinstance(opt, dict):
+                continue
+            if opt.get("action") != "choose_category":
+                pruned.append(opt)
+                continue
+            val = str(opt.get("value", "")).strip()
+            if suggested_cid and val == suggested_cid:
+                if val not in seen_cat:
+                    seen_cat.add(val)
+                    pruned.append({
+                        **opt,
+                        "label": f"Suggested: {category_name}",
+                        "suggested": True,
+                    })
+            elif not suggested_cid and val not in seen_cat:
+                seen_cat.add(val)
+                pruned.append(opt)
+        return pruned[:6]
+
+    def _extract_budget_from_message(self, message):
+        """Parse optional max budget from user text (e.g. budget 250, $500, Rs 1200)."""
+        text = str(message or "")
+        patterns = (
+            r"(?:budget|max(?:imum)?\s*budget|spend|pay)\s*(?:is|:)?\s*[\$£€₹]?\s*(\d{1,7}(?:\.\d{1,2})?)",
+            r"[\$£€₹]\s*(\d{1,7}(?:\.\d{1,2})?)",
+            r"(\d{1,7}(?:\.\d{1,2})?)\s*(?:dollars?|usd|budget)",
+        )
+        for pattern in patterns:
+            match = re.search(pattern, text, flags=re.IGNORECASE)
+            if match:
+                try:
+                    value = float(match.group(1))
+                    if value > 0:
+                        return value
+                except (TypeError, ValueError):
+                    continue
+        return None
+
+    def _normalize_optional_slots(self, parsed, message=""):
         if not isinstance(parsed, dict):
             return parsed
         raw_date = str(parsed.get("preferred_date_iso") or "").strip()
@@ -833,6 +897,15 @@ class ChatbotIntentView(APIView):
         except (TypeError, ValueError):
             parsed["suggested_provider_id"] = None
         parsed["needs_confirmation"] = bool(parsed.get("needs_confirmation", True))
+        budget_raw = parsed.get("suggested_budget")
+        if budget_raw in (None, ""):
+            budget_raw = self._extract_budget_from_message(message)
+        try:
+            parsed["suggested_budget"] = float(budget_raw) if budget_raw not in (None, "") else None
+            if parsed["suggested_budget"] is not None and parsed["suggested_budget"] <= 0:
+                parsed["suggested_budget"] = None
+        except (TypeError, ValueError):
+            parsed["suggested_budget"] = None
         return parsed
 
     def _normalize_intent_payload(self, message, parsed, available_categories):
@@ -842,7 +915,11 @@ class ChatbotIntentView(APIView):
         cat = self._normalize_category(parsed.get("suggested_category"), available_categories)
         parsed["suggested_category"] = cat
         self._reconcile_gemini_trade_with_user_text(message, parsed, available_categories)
-        parsed = self._normalize_optional_slots(parsed)
+        parsed = self._normalize_optional_slots(parsed, message)
+        if cat and isinstance(parsed.get("quick_options"), list):
+            parsed["quick_options"] = self._prune_category_quick_options(
+                parsed["quick_options"], cat, available_categories
+            )
         return parsed
 
     def _reconcile_gemini_trade_with_user_text(self, message, parsed, available_categories):
@@ -892,9 +969,14 @@ class ChatbotIntentView(APIView):
                           "clog", "clogged", "sewer", "disposal", "water line", "p-trap"}),
             ("electrical", {"outlet", "breaker", "wiring", "electrical", "fuse", "short circuit", "light switch",
                             "breaker panel", "blackout"}),
-            ("hvac", {"furnace", "thermostat", "cooling", "heating"}),
+            ("hvac", {"furnace", "thermostat", "cooling", "heating", "air condition", "ac not"}),
             ("paint", {"paint", "painting", "painter"}),
             ("clean", {"clean", "cleaning"}),
+            ("roof", {"ceiling", "roof", "rooftop", "shingle", "gutter", "pathar", "debris falling",
+                      "stones falling", "falling stone", "chat kharaab", "ki chat", "ceiling damage",
+                      "water stain", "roof leak"}),
+            ("carpent", {"wood", "furniture", "cabinet", "door frame", "shelf"}),
+            ("floor", {"floor", "flooring", "tile crack", "laminate"}),
         )
         for cat_slug, needles in clusters:
             hit = phrase_hit = False
@@ -1013,20 +1095,10 @@ class ChatbotIntentView(APIView):
         return best_name if best_score >= 0.12 else ""
 
     def _intent_via_db_gemini_keys(self, message, context):
-        system_settings = SystemSettings.get_settings()
-        # Use consolidated key loader so GEMINI_API_KEY_1..5 and GEMINI_API_KEYS
-        # from environment are honored even when DB row is not synced yet.
-        api_keys = system_settings.get_gemini_api_keys(prefer_env=True, sync_env_to_db=False)
-        single_key = (getattr(settings, "GEMINI_API_KEY", "") or "").strip()
-        if single_key:
-            api_keys.append(single_key)
-        valid_keys = []
-        for k in api_keys:
-            key = (k or "").strip()
-            if key and key not in valid_keys:
-                valid_keys.append(key)
+        from .ai_credentials import get_gemini_api_keys
+        valid_keys = get_gemini_api_keys()
         if not valid_keys:
-            return None, "No Gemini keys configured in DB or environment"
+            return None, "No Gemini keys configured in admin settings"
 
         available_categories = context.get("available_categories") or []
         convo = context.get("conversation_history") or []
@@ -1059,12 +1131,14 @@ Latest message: {message}
 Current form: {form}
 Conversation history (recent): {convo}
 Rules:
-- Analyze user text automatically; do not ask category if confidence is high and a category match exists.
-- Use category exactly from available list when possible.
+- User may write in English, Roman Urdu (Urdu in Latin script), or mixed language — infer category from meaning, not spelling locale.
+- Analyze user text automatically; pick suggested_category from the available list when symptoms are clear.
+- Do not ask the user to pick a category if you can infer one; set suggested_category and use quick_options for mode/draft only (no choose_category chips unless truly ambiguous).
+- Ceiling damage, falling stones/debris (e.g. pathar gir, chat kharaab) → Roofing when available; structural wall cracks → closest masonry/building category.
 - Never assign Electrical for obvious plumbing symptoms (sink, faucet, drain, leak, toilet, pipe).
 - Never assign Plumbing for obvious electrical work (breaker, outlet, wiring, fuse). Match the customer's trade honestly.
 - suggested_description must describe the SAME type of issue as suggested_category; do not invent a different trade.
-- Provide only 2-5 relevant options.
+- Provide only 2-5 relevant options; never duplicate the same choose_category option.
 - Include "prepare_draft" when title, description, and category are available or inferable.
 """
 
@@ -1117,6 +1191,10 @@ Rules:
                     parsed["quick_options"].append(
                         {"label": "Prepare draft now", "value": "prepare_draft", "action": "prepare_draft"}
                     )
+                if category_name:
+                    parsed["quick_options"] = self._prune_category_quick_options(
+                        parsed.get("quick_options") or [], category_name, available_categories
+                    )
                 return parsed, None
             except Exception as exc:
                 last_error = exc
@@ -1162,7 +1240,13 @@ Rules:
             ai_timeout = 4.0
         ai_timeout = max(1.5, min(ai_timeout, 10.0))
         try:
-            resp = requests.post(ai_url, json=payload, timeout=(2, ai_timeout))
+            from .ai_credentials import ai_service_request_headers
+            resp = requests.post(
+                ai_url,
+                json=payload,
+                headers=ai_service_request_headers(),
+                timeout=(2, ai_timeout),
+            )
             resp.raise_for_status()
             data = resp.json()
             avail = payload.get("context", {}).get("available_categories") or []
@@ -1205,6 +1289,14 @@ Rules:
             has_desc = bool(str(form.get("description") or "").strip() or message)
             has_cat = bool(inferred_category or str(form.get("category_id") or "").strip())
             can_prepare_draft = has_title and has_desc and has_cat
+            suggested_budget = self._extract_budget_from_message(message)
+            try:
+                form_budget = float(form.get("custom_budget") or form.get("budget") or 0) or None
+                if form_budget and form_budget > 0:
+                    suggested_budget = form_budget
+            except (TypeError, ValueError):
+                pass
+
             fallback = {
                 "summary": message_normalized[:240],
                 "intent": "create_service_request",
@@ -1213,10 +1305,15 @@ Rules:
                 "preferred_mode": str(form.get("mode") or "auto"),
                 "preferred_date_iso": "",
                 "suggested_provider_id": None,
+                "suggested_budget": suggested_budget,
                 "needs_confirmation": True,
                 "suggested_title": fallback_title,
                 "suggested_description": suggested_description,
-                "assistant_reply": "I captured your issue and prepared the next step options.",
+                "assistant_reply": (
+                    f"Suggested category: {inferred_category}. Based on your description I prepared the next steps — confirm or pick another category."
+                    if inferred_category
+                    else "I captured your issue. Select the most relevant category so I can prepare an accurate draft."
+                ),
                 "quick_options": self._build_default_options(inferred_category, available_categories, can_prepare_draft),
                 "issue_groups": self._extract_issue_groups(message, available_categories),
                 "source": "backend_market_fallback",

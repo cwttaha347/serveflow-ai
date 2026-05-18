@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import api from '../api';
 import { useSettings } from '../context/SettingsContext';
+import { formatMoney } from '../utils/money';
 import { Search, Filter, CheckCircle2, XCircle, Star, MoreVertical } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
+import { getErrorMessage } from '../utils/apiErrors';
 
 const AdminProviders = () => {
     const { settings } = useSettings();
@@ -43,7 +45,7 @@ const AdminProviders = () => {
             setModalOpen(false);
             fetchProviders();
         } catch (error) {
-            showError('Failed to update provider status');
+            showError(getErrorMessage(error, 'Failed to update provider status'));
         }
     };
 
@@ -54,7 +56,7 @@ const AdminProviders = () => {
             success('Provider rejected');
             fetchProviders();
         } catch (error) {
-            showError('Failed to reject provider');
+            showError(getErrorMessage(error, 'Failed to reject provider'));
         }
     };
 
@@ -147,7 +149,7 @@ const AdminProviders = () => {
                                 </div>
                                 <div className="flex justify-between text-sm">
                                     <span className="text-slate-500 dark:text-slate-400">Total Earnings</span>
-                                    <span className="font-medium text-slate-900 dark:text-slate-100">{settings.currency_symbol}{provider.total_earnings}</span>
+                                    <span className="font-medium text-slate-900 dark:text-slate-100">{formatMoney(provider.total_earnings, settings)}</span>
                                 </div>
                             </div>
 
@@ -271,7 +273,7 @@ const AdminProviders = () => {
                                     <div className="grid grid-cols-2 gap-4">
                                         <div className="p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-800">
                                             <p className="text-xs font-bold text-slate-400 uppercase mb-1">Total Earnings</p>
-                                            <p className="text-lg font-black text-slate-900 dark:text-white">{settings.currency_symbol}{selectedProvider.total_earnings}</p>
+                                            <p className="text-lg font-black text-slate-900 dark:text-white">{formatMoney(selectedProvider.total_earnings, settings)}</p>
                                         </div>
                                         <div className="p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-800">
                                             <p className="text-xs font-bold text-slate-400 uppercase mb-1">Jobs Completed</p>

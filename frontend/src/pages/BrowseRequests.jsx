@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import api from '../api';
 import { Search, Filter, Clock, MapPin, Briefcase, ChevronRight, Zap, DollarSign, Calendar } from 'lucide-react';
 import { useSettings } from '../context/SettingsContext';
+import { formatMoney } from '../utils/money';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useToast } from '../context/ToastContext';
 
@@ -117,7 +118,7 @@ const BrowseRequests = () => {
                                     <div className="flex items-center gap-2">
                                         <DollarSign className="w-5 h-5 text-green-600 dark:text-green-400" />
                                         <span className="text-lg font-bold text-slate-900 dark:text-slate-100">
-                                            {settings.currency_symbol}{request.budget ? request.budget.toFixed(2) : 'N/A'}
+                                            {request.budget != null ? formatMoney(request.budget, settings) : 'N/A'}
                                         </span>
                                     </div>
                                     <div className="flex items-center gap-1 text-xs text-slate-500">

@@ -23,6 +23,23 @@ from .notifications import notify_request_update, notify_job_update, send_notifi
 from .audit import log_audit
 from rest_framework.authtoken.views import ObtainAuthToken
 from rest_framework.authtoken.models import Token
+from rest_framework.throttling import ScopedRateThrottle
+from .auth_security import (
+    AuthIPThrottle,
+    check_lockouts,
+    clear_auth_failures,
+    email_fingerprint,
+    get_client_ip,
+    is_auth_locked,
+    lockout_response,
+    log_auth_failure,
+    log_auth_success,
+    normalize_email,
+    record_auth_failure,
+    reject_empty_password,
+    reject_oversized_body,
+    validate_auth_email,
+)
 from django.db.models import Q, Count, Max
 from .payments import create_checkout_session, process_webhook_event, confirm_invoice_payment, execute_provider_payout, _stripe_currency_code
 from .tasks import process_verification_case
@@ -49,24 +66,47 @@ def _masked_email_fingerprint(email: str) -> str:
 @method_decorator(csrf_exempt, name='dispatch')
 class CustomAuthToken(ObtainAuthToken):
     authentication_classes = []
+    throttle_classes = [AuthIPThrottle]
     throttle_scope = "auth_login"
 
     def post(self, request, *args, **kwargs):
-        # Allow login safely with username or email
-        username_or_email = request.data.get('username')
+        oversized = reject_oversized_body(request)
+        if oversized:
+            return oversized
+
+        username_or_email = (request.data.get('username') or request.data.get('email') or '').strip()
         password = request.data.get('password')
-        
+
+        if not username_or_email:
+            return Response(
+                {'error': 'Username/email and password are required.'},
+                status=400,
+            )
+        empty_pw = reject_empty_password(password)
+        if empty_pw:
+            return empty_pw
+
+        ip = get_client_ip(request)
+        login_ident = email_fingerprint(username_or_email) if '@' in username_or_email else username_or_email.lower()
+        locked = check_lockouts(request, "login", (ip, login_ident))
+        if locked:
+            return locked
+
         user = None
-        # Try fetching by username
         if User.objects.filter(username=username_or_email).exists():
-           user = User.objects.get(username=username_or_email)
-        # Try fetching by email
-        elif User.objects.filter(email=username_or_email).exists():
-           user = User.objects.get(email=username_or_email)
+            user = User.objects.get(username=username_or_email)
+        else:
+            normalized = normalize_email(username_or_email)
+            if normalized and User.objects.filter(email=normalized).exists():
+                user = User.objects.get(email=normalized)
 
         if user and user.check_password(password):
             if not user.is_active:
+                record_auth_failure("login", ip)
+                record_auth_failure("login", login_ident)
+                log_auth_failure("login", request, reason="inactive", user_id=user.id)
                 return Response({'error': 'Invalid credentials'}, status=400)
+            clear_auth_failures("login", ip, login_ident)
             token, created = Token.objects.get_or_create(user=user)
             profile_state = evaluate_profile_completion(user)
             provider_state = evaluate_provider_onboarding(user)
@@ -82,6 +122,7 @@ class CustomAuthToken(ObtainAuthToken):
                 description='User logged in successfully',
                 request=request,
             )
+            log_auth_success("login", request, email_fp=email_fingerprint(user.email), user_id=user.id)
             return Response({
                 'token': token.key,
                 'user_id': user.pk,
@@ -94,7 +135,11 @@ class CustomAuthToken(ObtainAuthToken):
                 'provider_onboarding_completed': provider_state['provider_onboarding_completed'],
                 'provider_onboarding_required': provider_state['provider_onboarding_required'],
             })
-        
+
+        locked_now = record_auth_failure("login", ip) or record_auth_failure("login", login_ident)
+        log_auth_failure("login", request, reason="invalid_credentials", email_fp=login_ident if '@' in username_or_email else "")
+        if locked_now or is_auth_locked("login", ip) or is_auth_locked("login", login_ident):
+            return lockout_response()
         return Response({'error': 'Invalid credentials'}, status=400)
 
 
@@ -110,6 +155,14 @@ class UserViewSet(viewsets.ModelViewSet):
         if self.action in {'create', 'forgot_password', 'reset_password'}:
             return [AllowAny()]
         return [IsAuthenticated()]
+
+    def get_throttles(self):
+        throttles = super().get_throttles()
+        if self.action == 'create':
+            self.throttle_scope = 'auth_register'
+        elif self.action in {'forgot_password', 'reset_password'}:
+            self.throttle_scope = 'auth_password_reset'
+        return throttles
     
     def get_serializer_class(self):
         if self.action == 'create':
@@ -117,6 +170,13 @@ class UserViewSet(viewsets.ModelViewSet):
         return UserSerializer
 
     def create(self, request, *args, **kwargs):
+        oversized = reject_oversized_body(request)
+        if oversized:
+            return oversized
+        empty_pw = reject_empty_password(request.data.get('password'))
+        if empty_pw:
+            return empty_pw
+
         role = str(request.data.get("role") or "user").strip().lower()
         if role == "admin":
             return Response({"error": "Invalid role selection."}, status=400)
@@ -140,7 +200,7 @@ class UserViewSet(viewsets.ModelViewSet):
         # TRIGGER VERIFICATION EMAIL ON SIGNUP
         if getattr(settings, 'ENABLE_EMAIL_OTP', True):
             try:
-                from .tasks import send_otp_email
+                from .tasks import dispatch_otp_email
                 # Generate 6-digit OTP for immediate use
                 import secrets
                 otp = str(secrets.randbelow(1_000_000)).zfill(6)
@@ -155,7 +215,7 @@ class UserViewSet(viewsets.ModelViewSet):
                     expires_at=expires_at,
                     ip_address=request.META.get('REMOTE_ADDR')
                 )
-                send_otp_email.delay(user.email, otp)
+                dispatch_otp_email(user.email, otp)
                 logger.info(f"Auto-sent signup OTP to {user.email}")
             except Exception as e:
                 logger.error(f"Failed to auto-send signup OTP: {e}")
@@ -187,16 +247,29 @@ class UserViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'], permission_classes=[AllowAny])
     def forgot_password(self, request):
-        email = str(request.data.get('email') or '').strip().lower()
+        oversized = reject_oversized_body(request)
+        if oversized:
+            return oversized
+
+        email = normalize_email(request.data.get('email'))
         if not email:
             return Response({'error': 'Email is required'}, status=400)
+        email_error = validate_auth_email(email)
+        if email_error:
+            return Response({'error': email_error}, status=400)
+
+        email_fp = email_fingerprint(email)
+        ip = get_client_ip(request)
+        locked = check_lockouts(request, "password_reset", (ip, email_fp))
+        if locked:
+            return locked
 
         generic_message = {'message': 'If an account exists, a reset link has been sent.'}
         request_id = str(request.headers.get('X-Request-Id') or '').strip()[:80]
         email_fp = _masked_email_fingerprint(email)
         try:
             user = User.objects.get(email=email)
-            from .emails import send_resilient_mail
+            from .emails import send_password_reset_email
             # Basic anti-abuse throttle per account.
             cutoff = timezone.now() - timedelta(minutes=5)
             if PasswordResetToken.objects.filter(user=user, created_at__gte=cutoff).exists():
@@ -222,13 +295,10 @@ class UserViewSet(viewsets.ModelViewSet):
                 return Response(generic_message)
             reset_link = urljoin(f"{front}/", f"reset-password?token={raw_token}")
             
-            subject = 'Password Reset - ServeFlow AI'
-            message = f'Click the link to reset your password: {reset_link}'
-            
-            sent = send_resilient_mail(
-                subject,
-                message,
-                [email],
+            sent = send_password_reset_email(
+                email,
+                reset_link,
+                user_name=user.get_full_name() or user.username,
                 log_context={
                     "flow": "forgot_password",
                     "user_id": user.id,
@@ -265,11 +335,23 @@ class UserViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'], permission_classes=[AllowAny])
     def reset_password(self, request):
+        oversized = reject_oversized_body(request)
+        if oversized:
+            return oversized
+
         token = request.data.get('token')
         new_password = request.data.get('password')
 
-        if not token or not new_password:
+        if not token:
             return Response({'error': 'Reset token and new password are required'}, status=400)
+        empty_pw = reject_empty_password(new_password)
+        if empty_pw:
+            return empty_pw
+
+        ip = get_client_ip(request)
+        locked = check_lockouts(request, "password_reset", (ip,))
+        if locked:
+            return locked
 
         try:
             token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
@@ -279,6 +361,8 @@ class UserViewSet(viewsets.ModelViewSet):
                 expires_at__gt=timezone.now(),
             ).first()
             if not token_obj:
+                record_auth_failure("password_reset", ip)
+                log_auth_failure("reset_password", request, reason="invalid_token")
                 return Response({'error': 'Invalid or expired reset token'}, status=400)
             user = token_obj.user
             user.set_password(new_password)
@@ -289,8 +373,12 @@ class UserViewSet(viewsets.ModelViewSet):
             PasswordResetToken.objects.filter(user=user, is_used=False).exclude(id=token_obj.id).update(
                 is_used=True, used_at=timezone.now()
             )
+            clear_auth_failures("password_reset", ip)
+            log_auth_success("reset_password", request, user_id=user.id)
             return Response({'message': 'Password has been reset successfully'})
         except Exception:
+            record_auth_failure("password_reset", ip)
+            log_auth_failure("reset_password", request, reason="unexpected_error")
             return Response({'error': 'Invalid request'}, status=400)
 
     @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
@@ -357,7 +445,9 @@ class CategoryViewSet(viewsets.ModelViewSet):
             'cleaning': ['dust', 'wash', 'mop', 'house', 'office', 'dirty', 'deep clean', 'vacuum', 'scrub', 'mess'],
             'painting': ['wall', 'color', 'brush', 'coat', 'stain', 'renovation', 'interior', 'exterior', 'primer'],
             'carpentry': ['wood', 'furniture', 'door', 'shelf', 'cabinet', 'fix', 'table', 'chair', 'hammer', 'nail'],
-            'hvac': ['ac', 'air', 'condition', 'heat', 'cool', 'filter', 'vent', 'duct', 'thermostat', 'chiller']
+            'hvac': ['ac', 'air', 'condition', 'heat', 'cool', 'filter', 'vent', 'duct', 'thermostat', 'chiller'],
+            'roofing': ['roof', 'ceiling', 'shingle', 'gutter', 'pathar', 'chat kharaab', 'ki chat', 'stones falling',
+                        'falling stone', 'debris', 'roof leak', 'water stain'],
         }
         
         # Simple keyword matching
@@ -452,7 +542,13 @@ class ProviderViewSet(viewsets.ModelViewSet):
         }
         skills = []
         try:
-            response = http_requests.post(ai_url, json={"categories": categories}, timeout=15)
+            from .ai_credentials import ai_service_request_headers
+            response = http_requests.post(
+                ai_url,
+                json={"categories": categories},
+                headers=ai_service_request_headers(),
+                timeout=15,
+            )
             response.raise_for_status()
             data = response.json()
             skills = data.get("skills", [])
@@ -800,12 +896,17 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         if request.user.role == 'user' and invoice.job.request.user_id != request.user.id:
             return Response({'error': 'Forbidden'}, status=403)
         payment_method = request.data.get('payment_method', 'cash')
-        
+
+        was_paid = invoice.paid
         invoice.paid = True
-        invoice.paid_at = timezone.now()
+        invoice.paid_at = invoice.paid_at or timezone.now()
         invoice.payment_method = payment_method
         invoice.save()
-        
+
+        if not was_paid:
+            from .invoice_utils import on_invoice_paid
+            on_invoice_paid(invoice)
+
         return Response({
             'status': 'success',
             'message': 'Invoice marked as paid',
@@ -827,9 +928,17 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         )
 
 class ReviewViewSet(viewsets.ModelViewSet):
-    queryset = Review.objects.all()
+    queryset = Review.objects.select_related('job', 'job__request', 'job__provider__user').all()
     serializer_class = ReviewSerializer
     permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.role == 'admin':
+            return self.queryset
+        return self.queryset.filter(
+            Q(job__request__user=user) | Q(job__provider__user=user)
+        )
 
     def perform_create(self, serializer):
         job_id = self.request.data.get('job_id')
@@ -1096,14 +1205,17 @@ class JobViewSet(viewsets.ModelViewSet):
                     budget = job.request.budget or 0
                     sys_settings = SystemSettings.get_settings()
                     tax_amount = (budget * sys_settings.tax_percentage) / 100
-                    Invoice.objects.create(
+                    from .invoice_utils import populate_invoice_addresses
+                    inv = Invoice.objects.create(
                         job=job,
                         subtotal=budget,
                         tax=tax_amount,
                         discount=0,
                         total=budget + tax_amount,
-                        paid=False
+                        paid=False,
+                        service_address=(job.request.address or '').strip(),
                     )
+                    populate_invoice_addresses(inv)
                     invoice_created = True
                 except Exception as e:
                     print(f"DEBUG: Error creating invoice: {e}")
@@ -1455,8 +1567,10 @@ class StripeConfirmView(APIView):
         try:
             reconciled = confirm_invoice_payment(invoice, session_id=session_id)
             return Response(reconciled, status=200)
+        except ValueError as e:
+            return Response({'error': str(e), 'paid': False, 'pending': False}, status=400)
         except Exception as e:
-            return Response({'error': str(e)}, status=500)
+            return Response({'error': str(e), 'paid': False, 'pending': True}, status=503)
 
 
 class StripeStatusView(APIView):
@@ -1627,6 +1741,17 @@ class NotificationFeedView(APIView):
 
         # Sort combined items by created_at descending
         items.sort(key=lambda x: x.get('created_at') or '', reverse=True)
+
+        # Deduplicate by stable id (guards against rare double-feed rows)
+        seen_ids = set()
+        deduped = []
+        for row in items:
+            rid = row.get('id')
+            if rid in seen_ids:
+                continue
+            seen_ids.add(rid)
+            deduped.append(row)
+        items = deduped
 
         notif_unread = NotificationItem.objects.filter(user=request.user, is_read=False).count()
         chat_unread = chat_msgs.count()

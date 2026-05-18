@@ -1,0 +1,15 @@
+{% extends "emails/base_email.html" %}
+{% block title %}New service request — ServeFlow AI{% endblock %}
+{% block content %}
+<h1 style="margin:0 0 12px;font-size:22px;font-weight:800;color:#0f172a;">New service request</h1>
+<p style="margin:0 0 20px;color:#475569;">A new <strong>{{ category_name }}</strong> request is available on ServeFlow.</p>
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="font-size:14px;">
+  <tr><td style="padding:8px 0;color:#64748b;width:140px;">Title</td><td style="padding:8px 0;color:#0f172a;font-weight:600;">{{ title }}</td></tr>
+  <tr><td style="padding:8px 0;color:#64748b;vertical-align:top;">Description</td><td style="padding:8px 0;color:#334155;">{{ description }}</td></tr>
+  <tr><td style="padding:8px 0;color:#64748b;">Budget</td><td style="padding:8px 0;color:#0f172a;">{{ budget }}</td></tr>
+  <tr><td style="padding:8px 0;color:#64748b;">Location</td><td style="padding:8px 0;color:#0f172a;">{{ location }}</td></tr>
+  <tr><td style="padding:8px 0;color:#64748b;">Preferred date</td><td style="padding:8px 0;color:#0f172a;">{{ preferred_date }}</td></tr>
+  <tr><td style="padding:8px 0;color:#64748b;">Customer</td><td style="padding:8px 0;color:#0f172a;">{{ customer_name }}</td></tr>
+  <tr><td style="padding:8px 0;color:#64748b;">Request ID</td><td style="padding:8px 0;color:#2563eb;font-weight:700;">#{{ request_id }}</td></tr>
+</table>
+{% endblock %}

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import api from '../api';
 import { Users as UsersIcon, Edit, Trash2, Ban, CheckCircle, Eye, Shield } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
+import { getErrorMessage } from '../utils/apiErrors';
 
 const AdminUsers = () => {
     const navigate = useNavigate();
@@ -20,8 +21,7 @@ const AdminUsers = () => {
             const response = await api.get('users/');
             setUsers(response.data);
         } catch (error) {
-            console.error('Error fetching users:', error);
-            showError('Failed to load users');
+            showError(getErrorMessage(error, 'Failed to load users'));
         } finally {
             setLoading(false);
         }
@@ -33,7 +33,7 @@ const AdminUsers = () => {
             success(currentStatus ? 'User deactivated' : 'User activated');
             fetchUsers();
         } catch (error) {
-            showError('Failed to update user');
+            showError(getErrorMessage(error, 'Failed to update user'));
         }
     };
 
@@ -44,7 +44,7 @@ const AdminUsers = () => {
                 success('User deleted successfully');
                 fetchUsers();
             } catch (error) {
-                showError('Failed to delete user');
+                showError(getErrorMessage(error, 'Failed to delete user'));
             }
         }
     };

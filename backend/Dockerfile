@@ -25,8 +25,17 @@ RUN pip install gunicorn uvicorn daphne
 # Copy project
 COPY . /app/
 
+# Bake admin/static assets at build time so container start does not block on collectstatic.
+ENV SECRET_KEY=collectstatic-build-only \
+    DEBUG=0 \
+    DATABASE_URL=sqlite:////tmp/collectstatic.db
+RUN python manage.py collectstatic --noinput
+
+# Outside /app so dev volume mount (./backend:/app) cannot overwrite with CRLF host copy
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN sed -i 's/\r$//' /docker-entrypoint.sh && chmod +x /docker-entrypoint.sh
+
 # Expose port
 EXPOSE 8000
 
-# Command to run the application using Daphne for ASGI support
-CMD ["daphne", "-b", "0.0.0.0", "-p", "8000", "serveflow.asgi:application"]
+CMD ["sh", "/docker-entrypoint.sh"]

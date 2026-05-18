@@ -1,5 +1,6 @@
 import requests
 from django.conf import settings
+from .ai_credentials import ai_service_request_headers
 from .models import VerificationBundle, VerificationAuditLog, VerificationCase
 from django.utils import timezone
 
@@ -19,7 +20,12 @@ def run_ai_verification(bundle: VerificationBundle):
         # Assuming FastAPI has an endpoint that takes these files 
         # (We'll update FastAPI main.py to handle this orchestration)
         ai_service_url = getattr(settings, "AI_SERVICE_URL", "http://ai_service:8001").rstrip("/")
-        response = requests.post(f"{ai_service_url}/ai/verify-provider", files=files, timeout=60)
+        response = requests.post(
+            f"{ai_service_url}/ai/verify-provider",
+            files=files,
+            headers=ai_service_request_headers(),
+            timeout=60,
+        )
         response.raise_for_status()
         data = response.json()
         

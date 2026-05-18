@@ -1,0 +1,17 @@
+{{ platform_name }} — Invoice
+
+Hi {{ customer_name }},
+
+Job: {{ job_title }}
+Provider: {{ provider_name }}
+{% if service_address %}Service address: {{ service_address }}{% endif %}
+{% if customer_address %}Billing address: {{ customer_address }}{% endif %}
+
+Subtotal: {{ subtotal_display }}
+Tax: {{ tax_display }}
+Discount: {{ discount_display }}
+Total: {{ total_display }}
+Status: {{ payment_status }}
+
+Invoice ID: #{{ invoice_id }}
+Job ID: #{{ job_id }}

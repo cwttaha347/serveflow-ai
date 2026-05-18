@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
 import { useToast } from '../context/ToastContext';
+import { useAuth } from '../context/AuthContext';
 
 const ProviderOnboarding = () => {
     const navigate = useNavigate();
     const { success, error: showError } = useToast();
+    const { refreshUser } = useAuth();
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [generating, setGenerating] = useState(false);
@@ -99,6 +101,7 @@ const ProviderOnboarding = () => {
                 bio,
                 experience_years: Number(experienceYears || 0),
             });
+            await refreshUser();
             success('Provider setup complete. Welcome to your dashboard.');
             navigate('/dashboard/provider');
         } catch (err) {

@@ -8,9 +8,7 @@ import {
     Brain, Receipt, CheckCircle2, Navigation, MessageSquare, ShieldCheck
 } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
-import { useTheme } from '../context/ThemeContext';
 import { useSettings } from '../context/SettingsContext';
-import ThemeToggle from '../components/ThemeToggle';
 import ChatInterface from '../components/ChatInterface';
 import { formatMoney } from '../utils/money';
 import { useAuth } from '../context/AuthContext';
@@ -18,7 +16,6 @@ import { useAuth } from '../context/AuthContext';
 const RequestDetail = () => {
     const { id } = useParams();
     const navigate = useNavigate();
-    const { theme } = useTheme();
     const { error: showError, success: showSuccess } = useToast();
     const { user } = useAuth();
     const { settings } = useSettings();
@@ -107,7 +104,6 @@ const RequestDetail = () => {
                             <Navigation className="w-4 h-4" /> Track Pro
                         </button>
                     )}
-                    <ThemeToggle />
                 </div>
             </div>
 
@@ -275,7 +271,7 @@ const RequestDetail = () => {
                                         <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Max Budget</span>
                                     </div>
                                     <span className="text-xl font-black text-slate-900 dark:text-white">
-                                        {formatMoney(request.budget, settings.currency_symbol)}
+                                        {formatMoney(request.budget, settings)}
                                     </span>
                                 </div>
                             )}
@@ -289,7 +285,7 @@ const RequestDetail = () => {
                                         {job.status === 'completed' ? <CheckCircle2 className="w-4 h-4" /> : <ShieldCheck className="w-4 h-4" />}
                                     </div>
                                     <p className="text-4xl font-black tracking-tight">
-                                        {formatMoney(user?.role === 'provider' ? (job.provider_earnings || 0) : (request.budget || 0), settings.currency_symbol)}
+                                        {formatMoney(user?.role === 'provider' ? (job.provider_earnings || 0) : (request.budget || 0), settings)}
                                     </p>
                                     <p className="text-[10px] font-bold uppercase tracking-widest mt-2 opacity-80">
                                         {job.status === 'completed' ? 'Payment Released' : 'Payment Pre-Authorized'}

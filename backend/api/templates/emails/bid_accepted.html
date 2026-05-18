@@ -1,0 +1,14 @@
+{% extends "emails/base_email.html" %}
+{% block title %}Bid accepted — ServeFlow AI{% endblock %}
+{% block content %}
+<h1 style="margin:0 0 12px;font-size:22px;font-weight:800;color:#0f172a;">Your bid was accepted</h1>
+<p style="margin:0 0 16px;color:#475569;">Congratulations {{ provider_name }}! The customer accepted your bid.</p>
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="font-size:14px;">
+  <tr><td style="padding:6px 0;color:#64748b;">Request</td><td style="padding:6px 0;font-weight:600;">{{ request_title }}</td></tr>
+  <tr><td style="padding:6px 0;color:#64748b;">Your bid</td><td style="padding:6px 0;font-weight:600;">${{ bid_amount }}</td></tr>
+  <tr><td style="padding:6px 0;color:#64748b;">Duration</td><td style="padding:6px 0;">{{ estimated_duration }}</td></tr>
+  <tr><td style="padding:6px 0;color:#64748b;">Customer</td><td style="padding:6px 0;">{{ customer_name }}</td></tr>
+  <tr><td style="padding:6px 0;color:#64748b;">Location</td><td style="padding:6px 0;">{{ location }}</td></tr>
+</table>
+<p style="margin:20px 0 0;font-size:14px;color:#475569;">Next steps: contact the customer, confirm details, and update the job when you start work.</p>
+{% endblock %}

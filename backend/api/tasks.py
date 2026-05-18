@@ -1,12 +1,9 @@
-import os
-from email.utils import parseaddr
-
 from celery import shared_task
 from django.core.mail import EmailMultiAlternatives
-from django.template.loader import render_to_string
 from django.conf import settings
 import logging
-import requests
+
+from .emails import get_smtp_connection, merge_smtp_config, render_email, smtp_is_configured
 from .models import ServiceRequest, Category, RateCard, VerificationCase
 from .matcher import run_matcher_engine
 from .verification import run_ai_verification
@@ -14,152 +11,48 @@ from .verification import run_ai_verification
 logger = logging.getLogger(__name__)
 
 
-def _merge_otp_mail_config(sys_settings):
-    """
-    DB SystemSettings first, then Space/process env (HF secrets often only hit env).
-    """
-    smtp_host = (sys_settings.smtp_host or "").strip() or (
-        os.environ.get("SMTP_HOST") or os.environ.get("EMAIL_HOST") or ""
-    ).strip()
-    port_raw = sys_settings.smtp_port
-    if port_raw is None:
-        pr = os.environ.get("SMTP_PORT") or os.environ.get("EMAIL_PORT")
-        smtp_port = int(pr) if pr else 587
-    else:
-        smtp_port = int(port_raw)
-    smtp_user = (sys_settings.smtp_user or "").strip() or (
-        os.environ.get("SMTP_USER") or os.environ.get("EMAIL_HOST_USER") or ""
-    ).strip()
-    smtp_password = (sys_settings.smtp_password or "").strip() or (
-        os.environ.get("SENDGRID_API_KEY")
-        or os.environ.get("EMAIL_HOST_PASSWORD")
-        or os.environ.get("SMTP_PASSWORD")
-        or ""
-    ).strip()
-    use_tls = sys_settings.smtp_use_tls
-    if os.environ.get("EMAIL_USE_TLS") is not None:
-        use_tls = os.environ.get("EMAIL_USE_TLS", "True").lower() == "true"
-    elif os.environ.get("SMTP_USE_TLS") is not None:
-        use_tls = os.environ.get("SMTP_USE_TLS", "True").lower() == "true"
-    from_display = (
-        (sys_settings.from_email or "").strip()
-        or os.environ.get("DEFAULT_FROM_EMAIL", "").strip()
-        or settings.DEFAULT_FROM_EMAIL
-    )
-    return smtp_host, smtp_port, smtp_user, smtp_password, use_tls, from_display
-
-
-def _sendgrid_from_payload(from_display):
-    """SendGrid v3 requires bare email in from.email; 'Name <email>' must be split."""
-    name, addr = parseaddr(from_display)
-    addr = (addr or "").strip()
-    if not addr and "@" in (from_display or ""):
-        addr = from_display.strip()
-    if not addr:
-        addr = "noreply@serveflow.ai"
-    out = {"email": addr}
-    if name and name.strip():
-        out["name"] = name.strip()
-    return out
-
-
 @shared_task(bind=True, max_retries=3, default_retry_delay=30)
 def send_otp_email(self, email, otp):
     """
-    Send 6-digit OTP email to user using professional HTML/Plain-text template.
-
-    Hugging Face / production: set Space secrets, e.g. SMTP_HOST=smtp.sendgrid.net,
-    SENDGRID_API_KEY=REDACTED_SENDGRID_KEY (sync maps to smtp_user=apikey + password), DEFAULT_FROM_EMAIL
-    (verified sender).     For one-time env→DB sync run: ``python manage.py sync_settings_from_env --force``.
-    Legacy: SYNC_SETTINGS_FROM_ENV_ON_EVERY_READ=true restores old get_settings() sync.
+    Send 6-digit OTP email via SMTP (SystemSettings + env).
     Check api_emailog in admin if delivery fails.
     """
-    # Check if OTP is globally enabled
-    if not getattr(settings, 'ENABLE_EMAIL_OTP', False):
+    if not getattr(settings, 'ENABLE_EMAIL_OTP', True):
         logger.info(f"OTP email skipped for {email} (ENABLE_EMAIL_OTP=False). Code: {otp}")
         return
 
     subject = f'Your ServeFlow verification code: {otp}'
-    from_email = settings.DEFAULT_FROM_EMAIL
-    
-    # Context for template
     context = {
         'otp': otp,
         'expiry_minutes': getattr(settings, 'OTP_EXPIRY_SECONDS', 600) // 60
     }
-    
+
     try:
-        from django.core.mail import get_connection
         from .models import SystemSettings, EmailLog
-        
-        # Render templates
-        html_content = render_to_string('emails/otp_email.html', context)
-        text_content = render_to_string('emails/otp_email.txt', context)
-        
+
+        html_content, text_content = render_email('otp_email', context)
         sys_settings = SystemSettings.get_settings()
-        smtp_host, smtp_port, smtp_user, smtp_password, use_tls, final_from_email = _merge_otp_mail_config(
+        smtp_host, smtp_port, smtp_user, smtp_password, use_tls, final_from_email = merge_smtp_config(
             sys_settings
         )
 
-        # SendGrid Web API (Bearer) or SMTP: apikey + SG.* ; legacy Twilio/SK basic auth
-        host_l = (smtp_host or "").lower()
-        is_sendgrid = (
-            smtp_user == "apikey"
-            or "sendgrid" in host_l
-            or (smtp_password and str(smtp_password).startswith("SG."))
-            or (smtp_user and str(smtp_user).startswith("SK"))
-        )
-
-        if is_sendgrid:
-            url = "https://api.sendgrid.com/v3/mail/send"
-
-            # Handle different auth types
-            if smtp_user and smtp_user.startswith("SK"):
-                from requests.auth import HTTPBasicAuth
-
-                auth = HTTPBasicAuth(smtp_user, smtp_password)
-                headers = {"Content-Type": "application/json"}
-            else:
-                auth = None
-                headers = {
-                    "Authorization": f"Bearer {smtp_password}",
-                    "Content-Type": "application/json",
-                }
-
-            data = {
-                "personalizations": [{"to": [{"email": email}]}],
-                "from": _sendgrid_from_payload(final_from_email),
-                "subject": subject,
-                "content": [
-                    {"type": "text/plain", "value": text_content},
-                    {"type": "text/html", "value": html_content},
-                ],
-            }
-            res = requests.post(url, json=data, headers=headers, auth=auth, timeout=10)
-            res.raise_for_status()
-            logger.info(f"OTP email sent to {email} via SendGrid Web API")
+        if not smtp_is_configured(sys_settings):
+            logger.warning(
+                "No SMTP credentials configured — OTP for %s will only appear in console/logs. "
+                "Run: python manage.py sync_credentials_file --force",
+                email,
+            )
         else:
-            # Fallback to SMTP
-            if not smtp_user and not getattr(settings, "EMAIL_HOST_USER", ""):
-                logger.info("No SMTP user in settings or env, using default Django connection.")
-                connection = get_connection()
-            else:
-                logger.info(f"Using SMTP: {smtp_host or settings.EMAIL_HOST}:{smtp_port}")
-                connection = get_connection(
-                    host=smtp_host or settings.EMAIL_HOST,
-                    port=smtp_port or settings.EMAIL_PORT,
-                    username=smtp_user or settings.EMAIL_HOST_USER,
-                    password=smtp_password or settings.EMAIL_HOST_PASSWORD,
-                    use_tls=use_tls,
-                    timeout=10,
-                )
+            logger.info("Using SMTP: %s:%s", smtp_host or settings.EMAIL_HOST, smtp_port)
+        connection = get_smtp_connection(sys_settings)
 
-            msg = EmailMultiAlternatives(subject, text_content, final_from_email, [email], connection=connection)
-            msg.attach_alternative(html_content, "text/html")
-            msg.send()
-            logger.info(f"OTP email sent to {email} via SMTP")
+        msg = EmailMultiAlternatives(
+            subject, text_content, final_from_email, [email], connection=connection
+        )
+        msg.attach_alternative(html_content, "text/html")
+        msg.send()
+        logger.info("OTP email sent to %s via SMTP", email)
 
-        # Log success to DB
         EmailLog.objects.create(
             recipient_email=email,
             subject=subject,
@@ -168,13 +61,11 @@ def send_otp_email(self, email, otp):
         )
 
     except Exception as exc:
-        # Avoid logging the Retry exception itself as an error
         from celery.exceptions import Retry
         if isinstance(exc, Retry):
             raise
-            
+
         from .models import EmailLog
-        # Log failure to DB so OTP can still be retrieved
         EmailLog.objects.create(
             recipient_email=email,
             subject=subject,
@@ -182,22 +73,25 @@ def send_otp_email(self, email, otp):
             success=False,
             error_message=str(exc)
         )
-        
+
         error_str = str(exc)
-        # Specific hint for 401
-        if "401" in error_str:
-            logger.error(f"CRITICAL: SendGrid/Twilio keys are UNAUTHORIZED (401). Please update to an SG. key.")
-            # Do NOT retry on 401, it's a permanent failure
-            return
-        
-        logger.error(f"Error in send_otp_email for {email}: {error_str}")
-        
-        # Only retry if it's not a permanent error
+        logger.error("Error in send_otp_email for %s: %s", email, error_str)
+
         if any(err in error_str.lower() for err in ["timeout", "connection", "500", "502", "503", "504"]):
             raise self.retry(exc=exc)
-        else:
-            # For other errors, don't retry (it just causes 500s in eager mode)
-            pass
+
+
+def dispatch_otp_email(email: str, otp: str) -> bool:
+    """
+    Deliver OTP synchronously when Celery eager (Docker dev / tests), else queue.
+    Returns True when send finished in-process (EmailLog is immediately available).
+    """
+    if getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
+        send_otp_email.apply(args=[email, otp])
+        return True
+    send_otp_email.delay(email, otp)
+    return False
+
 
 @shared_task(bind=True, max_retries=3)
 def process_service_request(self, request_id):

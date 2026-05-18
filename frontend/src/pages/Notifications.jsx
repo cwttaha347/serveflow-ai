@@ -8,7 +8,7 @@ import { getNotificationTarget } from '../utils/notificationNavigation';
 const Notifications = () => {
     const [items, setItems] = useState([]);
     const [loading, setLoading] = useState(true);
-    const { refreshUnreadSummary } = useWebSocket();
+    const { refreshUnreadSummary, feedVersion } = useWebSocket();
     const { user } = useAuth();
     const navigate = useNavigate();
     const userRole = user?.role || 'user';
@@ -25,7 +25,7 @@ const Notifications = () => {
 
     useEffect(() => {
         load();
-    }, []);
+    }, [feedVersion]);
 
     const markRead = async (id = null) => {
         await api.post('notifications/read/', id ? { id } : {});

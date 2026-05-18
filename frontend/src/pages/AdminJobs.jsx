@@ -2,10 +2,14 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
 import { useSettings } from '../context/SettingsContext';
+import { formatMoney } from '../utils/money';
 import { Briefcase, Eye, CheckCircle, Clock, XCircle, PlayCircle } from 'lucide-react';
+import { useToast } from '../context/ToastContext';
+import { getErrorMessage } from '../utils/apiErrors';
 
 const AdminJobs = () => {
     const { settings } = useSettings();
+    const { error: showError } = useToast();
     const navigate = useNavigate();
     const [jobs, setJobs] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -20,7 +24,7 @@ const AdminJobs = () => {
             const response = await api.get('jobs/');
             setJobs(response.data);
         } catch (error) {
-            console.error('Error fetching jobs:', error);
+            showError(getErrorMessage(error, 'Failed to load jobs'));
         } finally {
             setLoading(false);
         }
@@ -137,7 +141,7 @@ const AdminJobs = () => {
                                             </span>
                                         </td>
                                         <td className="px-6 py-4 font-semibold text-slate-900 dark:text-slate-100">
-                                            {settings.currency_symbol}{Number(job.request?.budget || 0).toFixed(2)}
+                                            {formatMoney(Number(job.request?.budget || 0), settings)}
                                         </td>
                                         <td className="px-6 py-4 text-slate-600 dark:text-slate-300">
                                             {new Date(job.created_at).toLocaleDateString()}

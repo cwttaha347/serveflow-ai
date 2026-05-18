@@ -1,23 +1,16 @@
 import { useState, useEffect } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Zap, Menu, X, ArrowRight, LayoutDashboard, LogOut } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Menu, X, LayoutDashboard, Zap } from 'lucide-react';
 import { useSettings } from '../context/SettingsContext';
 import { useAuth } from '../context/AuthContext';
 import { AnimatePresence, motion } from 'framer-motion';
+import BrandLogo from './BrandLogo';
 
 const PublicNavbar = ({ transparent = false }) => {
     const { settings } = useSettings();
-    const { user, logout } = useAuth();
-    const navigate = useNavigate();
+    const { user } = useAuth();
     const [scrolled, setScrolled] = useState(false);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-    const location = useLocation();
-
-    const handleLogout = () => {
-        logout();
-        navigate('/');
-        setMobileMenuOpen(false);
-    };
 
     useEffect(() => {
         const handleScroll = () => {
@@ -72,9 +65,6 @@ const PublicNavbar = ({ transparent = false }) => {
                     <div className="flex items-center gap-4 ml-4">
                         {user ? (
                             <>
-                                <button onClick={handleLogout} className="text-sm font-medium text-slate-300 hover:text-white transition-colors">
-                                    Log Out
-                                </button>
                                 <Link
                                     to={user.role === 'provider' ? '/dashboard/provider' : '/dashboard'}
                                     className="px-5 py-2.5 bg-blue-600 text-white rounded-full font-semibold hover:bg-blue-500 transition-all hover:shadow-lg hover:scale-105 active:scale-95 flex items-center gap-2"
@@ -156,7 +146,6 @@ const PublicNavbar = ({ transparent = false }) => {
                                         >
                                             Go to Dashboard
                                         </Link>
-                                        <button onClick={handleLogout} className="text-slate-300 hover:text-white py-2 text-center rounded-xl hover:bg-slate-800/50 transition-colors">Log Out</button>
                                     </>
                                 ) : (
                                     <>

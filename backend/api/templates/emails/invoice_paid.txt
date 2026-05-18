@@ -1,0 +1,13 @@
+{{ platform_name }} — Payment received
+
+Hi {{ provider_name }},
+
+{{ customer_name }} paid invoice #{{ invoice_id }} for "{{ job_title }}".
+
+Amount received: {{ total_display }}
+Subtotal: {{ subtotal_display }}
+Tax: {{ tax_display }}
+
+{% if service_address %}Service location: {{ service_address }}{% endif %}
+
+Job #{{ job_id }}

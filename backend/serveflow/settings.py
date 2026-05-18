@@ -18,6 +18,14 @@ from corsheaders.defaults import default_headers
 
 load_dotenv()
 
+
+def env_bool(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in ("true", "1", "yes", "on")
+
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -29,14 +37,36 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.environ.get("SECRET_KEY", "django-insecure-%+%j%@=)8hhyzmg1rf_x84j4r(oa!-sr5-)ou*g6hdb9gvr^m^")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.environ.get("DEBUG", "True").lower() == "true"
+DEBUG = env_bool("DEBUG", default=True)
 
-ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "localhost,127.0.0.1,*").split(",")
+def _build_allowed_hosts():
+    """Parse ALLOWED_HOSTS; in DEBUG also allow this machine's LAN IP (Vite network URL)."""
+    raw = os.environ.get("ALLOWED_HOSTS", "localhost,127.0.0.1,[::1]")
+    hosts = [h.strip() for h in raw.split(",") if h.strip() and h.strip() != "*"]
+    if DEBUG:
+        for extra in ("backend", "host.docker.internal"):
+            if extra not in hosts:
+                hosts.append(extra)
+        try:
+            import socket
+            probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            probe.connect(("8.8.8.8", 80))
+            lan_ip = probe.getsockname()[0]
+            probe.close()
+            if lan_ip and lan_ip not in hosts:
+                hosts.append(lan_ip)
+        except OSError:
+            pass
+    return hosts
+
+
+ALLOWED_HOSTS = _build_allowed_hosts()
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:5173")
 # When True and Stripe is configured, manual/auto publishes require Checkout before jobs are created.
 # Set ESCROW_ON_PUBLISH=true in production when Stripe is configured (manual/auto publish require Checkout).
 ESCROW_ON_PUBLISH = os.environ.get("ESCROW_ON_PUBLISH", "False").lower() == "true"
 AI_SERVICE_URL = os.environ.get("AI_SERVICE_URL", "http://localhost:8001")
+AI_SERVICE_INTERNAL_TOKEN = (os.environ.get("AI_SERVICE_INTERNAL_TOKEN") or "serveflow-internal-dev").strip()
 MATCHING_SERVICE_URL = os.environ.get("MATCHING_SERVICE_URL", "http://localhost:8002")
 
 # Single Gemini key from env (also read in SystemSettings.get_gemini_api_keys for vision).
@@ -70,6 +100,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    "serveflow.middleware.AllowLanHostMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
@@ -81,6 +112,7 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "serveflow.middleware.SecurityHeadersMiddleware",
+    "serveflow.middleware_upload.UploadTooLargeMiddleware",
 ]
 
 # Security Settings
@@ -90,7 +122,14 @@ X_FRAME_OPTIONS = 'DENY'
 
 # Production Security
 ENABLE_SSL = os.environ.get("ENABLE_SSL", "False").lower() == "true"
-if ENABLE_SSL or not DEBUG:
+_ssl_redirect_env = os.environ.get("SECURE_SSL_REDIRECT", "").lower()
+if _ssl_redirect_env == "true":
+    _use_ssl_redirect = True
+elif _ssl_redirect_env == "false":
+    _use_ssl_redirect = False
+else:
+    _use_ssl_redirect = ENABLE_SSL or not DEBUG
+if _use_ssl_redirect:
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
     SECURE_SSL_REDIRECT = True
     SESSION_COOKIE_SECURE = True
@@ -147,16 +186,23 @@ else:
 # Database
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
+# PostgreSQL everywhere (Docker Compose, local dev, production). Override via DATABASE_URL.
+_DEFAULT_DATABASE_URL = os.environ.get(
+    "DATABASE_URL",
+    "postgres://postgres:postgres@localhost:5432/serveflow",
+)
 DATABASES = {
     "default": dj_database_url.config(
-        default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
+        default=_DEFAULT_DATABASE_URL,
         conn_max_age=600,
     )
 }
 
-# SSL is usually required for production PostgreSQL, but not for SQLite
-if not DEBUG and 'sqlite' not in DATABASES['default']['ENGINE']:
-    DATABASES['default']['OPTIONS'] = {'sslmode': 'require'}
+# SSL is required for managed PostgreSQL; disable for local/Docker via DATABASE_SSLMODE=disable
+if not DEBUG and "postgresql" in DATABASES["default"]["ENGINE"]:
+    sslmode = os.environ.get('DATABASE_SSLMODE', 'require')
+    if sslmode:
+        DATABASES['default']['OPTIONS'] = {'sslmode': sslmode}
 
 
 # Password validation
@@ -200,7 +246,10 @@ if os.path.exists(FRONTEND_DIST):
     STATICFILES_DIRS = [FRONTEND_DIST]
 
 
-# Media files (uploads)
+# Media files (uploads) — align with frontend/nginx client_max_body_size (10MB)
+UPLOAD_MAX_BYTES = 10 * 1024 * 1024
+DATA_UPLOAD_MAX_MEMORY_SIZE = UPLOAD_MAX_BYTES
+FILE_UPLOAD_MAX_MEMORY_SIZE = UPLOAD_MAX_BYTES
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
@@ -212,27 +261,29 @@ EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'ServeFlow AI <noreply@serveflow.ai>')
 
-# Fallback to console backend if SMTP credentials aren't provided to prevent crashes
+# Process env only; DB credentials from credentials.txt are applied at send time (see api.emails).
 if EMAIL_HOST_USER:
-    EMAIL_BACKEND = os.environ.get('EMAIL_BACKEND', 'django.core.mail.backends.smtp.EmailBackend')
+    EMAIL_BACKEND = os.environ.get(
+        "EMAIL_BACKEND", "django.core.mail.backends.smtp.EmailBackend"
+    )
 else:
-    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+    EMAIL_BACKEND = os.environ.get(
+        "EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"
+    )
 
 # --- ServeFlow v2.0 OTP & Security Settings ---
-ENABLE_EMAIL_OTP = os.environ.get('ENABLE_EMAIL_OTP', 'True').lower() == 'true'
+ENABLE_EMAIL_OTP = env_bool('ENABLE_EMAIL_OTP', default=True)
 
 OTP_EXPIRY_SECONDS = int(os.environ.get('OTP_EXPIRY_SECONDS', 600))
 OTP_MAX_ATTEMPTS = int(os.environ.get('OTP_MAX_ATTEMPTS', 5))
 OTP_RATE_LIMIT_PER_HOUR = int(os.environ.get('OTP_RATE_LIMIT_PER_HOUR', 3))
 
-# SendGrid Configuration (Optional override)
-IF_SENDGRID = os.environ.get('USE_SENDGRID', 'False').lower() == 'true'
-if IF_SENDGRID:
-    EMAIL_BACKEND = 'sgbackend.SendGridBackend'
-    SENDGRID_API_KEY = os.environ.get('SENDGRID_API_KEY', '')
-    SENDGRID_SANDBOX_MODE_IN_DEBUG = DEBUG
-    SENDGRID_ECHO_TO_STDOUT = DEBUG
-# ----------------------------------------------
+# Auth abuse protection (lockouts use cache; Redis when REDIS_URL is set)
+AUTH_LOCKOUT_MAX_ATTEMPTS = int(os.environ.get('AUTH_LOCKOUT_MAX_ATTEMPTS', 5))
+AUTH_LOCKOUT_WINDOW_SECONDS = int(os.environ.get('AUTH_LOCKOUT_WINDOW_SECONDS', 900))
+AUTH_LOCKOUT_DURATION_SECONDS = int(os.environ.get('AUTH_LOCKOUT_DURATION_SECONDS', 900))
+AUTH_MAX_BODY_BYTES = int(os.environ.get('AUTH_MAX_BODY_BYTES', 8192))
+AUTH_MAX_PASSWORD_LENGTH = int(os.environ.get('AUTH_MAX_PASSWORD_LENGTH', 128))
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
@@ -264,8 +315,10 @@ CSRF_TRUSTED_ORIGINS = [
     "https://serveflowai-serveflowai.hf.space",
     "https://*.hf.space",
     "https://*.koyeb.app",
+    "http://localhost",
     "http://localhost:5173",
     "http://localhost:8000",
+    "http://127.0.0.1",
     "http://127.0.0.1:5173",
     "http://127.0.0.1:8000",
 ]
@@ -282,16 +335,43 @@ REST_FRAMEWORK = {
     'DEFAULT_THROTTLE_RATES': {
         'auth_login': os.environ.get('RATE_AUTH_LOGIN', '10/min'),
         'auth_otp': os.environ.get('RATE_AUTH_OTP', '5/hour'),
+        'auth_otp_email': os.environ.get('RATE_AUTH_OTP_EMAIL', '3/hour'),
         'auth_otp_verify': os.environ.get('RATE_AUTH_OTP_VERIFY', '20/hour'),
+        'auth_register': os.environ.get('RATE_AUTH_REGISTER', '10/hour'),
+        'auth_password_reset': os.environ.get('RATE_AUTH_PASSWORD_RESET', '5/hour'),
     },
 }
 
+if REDIS_URL:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': REDIS_URL,
+        }
+    }
+else:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'serveflow-auth',
+        }
+    }
+
 # --- Celery Configuration ---
-# Set to True for development to run tasks synchronously
-CELERY_TASK_ALWAYS_EAGER = True
+# Docker/production: use Redis broker; local without Redis: run tasks inline.
+if REDIS_URL:
+    CELERY_BROKER_URL = REDIS_URL
+    CELERY_RESULT_BACKEND = REDIS_URL
+    if os.environ.get("CELERY_TASK_ALWAYS_EAGER") is not None:
+        CELERY_TASK_ALWAYS_EAGER = env_bool("CELERY_TASK_ALWAYS_EAGER")
+    else:
+        # Docker dev stack has no celery worker — run OTP/mail tasks in-process.
+        CELERY_TASK_ALWAYS_EAGER = DEBUG
+else:
+    CELERY_TASK_ALWAYS_EAGER = True
+    CELERY_BROKER_URL = "memory://"
+    CELERY_RESULT_BACKEND = "cache+memory://"
 CELERY_TASK_EAGER_PROPAGATES = True
-CELERY_BROKER_URL = 'memory://'
-CELERY_RESULT_BACKEND = 'cache+memory://'
 # ----------------------------
 
 # --- Deprecated console default (managed by logic above) ---

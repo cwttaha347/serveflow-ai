@@ -13,6 +13,7 @@ import { motion } from 'framer-motion';
 import ChatInterface from '../components/ChatInterface';
 import { useWebSocket } from '../context/WebSocketContext';
 import { formatMoney } from '../utils/money';
+import DashboardBrand from '../components/DashboardBrand';
 
 const ProviderDashboard = () => {
     const navigate = useNavigate();
@@ -27,7 +28,7 @@ const ProviderDashboard = () => {
 
     // Auto-refresh on new jobs or status updates
     useEffect(() => {
-        if (lastMessage && ['new_job', 'job_update', 'request_update'].includes(lastMessage.type)) {
+        if (lastMessage && ['new_job', 'job_update', 'request_update', 'invoice_paid'].includes(lastMessage.type)) {
             fetchProviderData();
         }
     }, [lastMessage]);
@@ -152,9 +153,12 @@ const ProviderDashboard = () => {
             className="space-y-10 px-1 sm:px-0"
         >
             <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div>
-                    <h1 className="text-3xl sm:text-4xl font-black text-slate-900 dark:text-white tracking-tight">Provider dashboard</h1>
-                    <p className="text-slate-500 dark:text-slate-400 font-medium">Your jobs, messages, and earnings</p>
+                <div className="flex items-start gap-3 min-w-0">
+                    <DashboardBrand linkTo="/dashboard/provider" unlinked className="mt-0.5" />
+                    <div className="min-w-0">
+                        <h1 className="text-3xl sm:text-4xl font-black text-slate-900 dark:text-white tracking-tight">Provider dashboard</h1>
+                        <p className="text-slate-500 dark:text-slate-400 font-medium">Your jobs, messages, and earnings</p>
+                    </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
                     <div className="px-4 py-2 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-800 rounded-xl flex items-center gap-2">

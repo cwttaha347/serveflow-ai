@@ -15,7 +15,6 @@ export const warmAudioContext = () => {
             source.buffer = buffer;
             source.connect(audioCtx.destination);
             source.start(0);
-            console.log("AudioContext warmed and unlocked");
         }
     } else if (audioCtx.state === 'suspended') {
         audioCtx.resume();

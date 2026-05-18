@@ -59,7 +59,6 @@ const ChatInterface = ({ jobId, otherUser, isOpen, onClose }) => {
             }, 10000);
 
             ws.onopen = () => {
-                console.log("Chat connected");
                 reconnectAttemptRef.current = 0;
                 setConnectionState('connected');
                 setSocket(ws);

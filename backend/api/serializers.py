@@ -1,4 +1,6 @@
 from rest_framework import serializers
+from .image_utils import optimize_image_field
+from .media_urls import build_media_path
 from .models import (
     User, Profile, Category, Provider, Request, Job, Invoice, Review, Dispute, EmailLog, Bid,
     Worker, WorkerLocationPing, ProviderLedgerEntry, ProviderPayout, RevenueSplitRule, JobStatusHistory,
@@ -46,6 +48,26 @@ class ProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = Profile
         fields = ['id', 'photo', 'bio', 'address', 'latitude', 'longitude', 'certifications']
+
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        ret['photo'] = build_media_path(instance.photo)
+        return ret
+
+    def update(self, instance, validated_data):
+        photo = validated_data.get('photo')
+        instance = super().update(instance, validated_data)
+        if photo and instance.photo:
+            if optimize_image_field(instance.photo):
+                instance.save(update_fields=['photo'])
+        return instance
+
+    def create(self, validated_data):
+        instance = super().create(validated_data)
+        if instance.photo:
+            if optimize_image_field(instance.photo):
+                instance.save(update_fields=['photo'])
+        return instance
 
 class UserSerializer(serializers.ModelSerializer):
     profile = ProfileSerializer(required=False, allow_null=True)
@@ -183,7 +205,27 @@ class CategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = Category
         fields = '__all__'
-    
+
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        ret['image'] = build_media_path(instance.image)
+        return ret
+
+    def update(self, instance, validated_data):
+        image = validated_data.get('image')
+        instance = super().update(instance, validated_data)
+        if image and instance.image:
+            if optimize_image_field(instance.image):
+                instance.save(update_fields=['image'])
+        return instance
+
+    def create(self, validated_data):
+        instance = super().create(validated_data)
+        if instance.image:
+            if optimize_image_field(instance.image):
+                instance.save(update_fields=['image'])
+        return instance
+
     def validate_name(self, value):
         """
         Check that the name is unique, excluding the current instance during updates

@@ -1,0 +1,15 @@
+{% extends "emails/base_email.html" %}
+{% block title %}Payment received — {{ platform_name }}{% endblock %}
+{% block content %}
+<h1 style="margin:0 0 12px;font-size:22px;font-weight:800;color:#0f172a;">Payment received</h1>
+<p style="margin:0 0 16px;color:#475569;">Hi {{ provider_name }}, <strong>{{ customer_name }}</strong> paid invoice <strong>#{{ invoice_number }}</strong> for <strong>{{ job_title }}</strong>.</p>
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="font-size:14px;border-collapse:collapse;margin-bottom:16px;">
+  <tr><td style="padding:8px 0;color:#64748b;">Amount received</td><td align="right" style="padding:8px 0;font-weight:800;font-size:18px;color:#059669;">{{ total_display }}</td></tr>
+  <tr><td style="padding:8px 0;color:#64748b;">Subtotal</td><td align="right" style="padding:8px 0;">{{ subtotal_display }}</td></tr>
+  <tr><td style="padding:8px 0;color:#64748b;">Tax</td><td align="right" style="padding:8px 0;">{{ tax_display }}</td></tr>
+</table>
+{% if service_address %}
+<p style="margin:0 0 8px;font-size:13px;color:#64748b;"><strong>Service location:</strong> {{ service_address }}</p>
+{% endif %}
+<p style="margin:16px 0 0;font-size:13px;color:#94a3b8;">Job #{{ job_id }} · Invoice #{{ invoice_id }}</p>
+{% endblock %}

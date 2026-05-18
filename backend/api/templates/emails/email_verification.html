@@ -1,0 +1,14 @@
+{% extends "emails/base_email.html" %}
+{% block title %}Verify your email — ServeFlow AI{% endblock %}
+{% block content %}
+<h1 style="margin:0 0 12px;font-size:22px;font-weight:800;color:#0f172a;">Verify your email address</h1>
+<p style="margin:0 0 20px;color:#475569;">Hi{% if user_name %} {{ user_name }}{% endif %}, confirm your email to unlock full access to ServeFlow.</p>
+{% endblock %}
+{% block cta %}
+<tr>
+  <td align="center" style="padding:0 28px 32px;">
+    <a href="{{ verify_link }}" style="display:inline-block;background:linear-gradient(135deg,#2563eb,#7c3aed);color:#ffffff;text-decoration:none;font-weight:700;font-size:15px;padding:14px 28px;border-radius:10px;">Verify email</a>
+    <p style="margin:16px 0 0;font-size:12px;color:#94a3b8;word-break:break-all;">Or copy this link:<br><a href="{{ verify_link }}" style="color:#2563eb;">{{ verify_link }}</a></p>
+  </td>
+</tr>
+{% endblock %}

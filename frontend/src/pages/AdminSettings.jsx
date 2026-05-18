@@ -3,11 +3,12 @@ import api from '../api';
 import {
     Save, Loader2, DollarSign, Mail, Shield, Server,
     Globe, CreditCard, Cpu, Activity, Info, AlertTriangle,
-    ToggleLeft, ToggleRight, CheckCircle2, Building, Palette, Sun, Moon
+    ToggleLeft, ToggleRight, CheckCircle2, Building, Palette
 } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
-import { useTheme } from '../context/ThemeContext';
+import { getErrorMessage } from '../utils/apiErrors';
 import { useSettings } from '../context/SettingsContext';
+import { formatMoney } from '../utils/money';
 
 /** Full shape merged with GET /settings/config/ so inputs never see undefined. */
 const ADMIN_SETTINGS_FORM_DEFAULTS = {
@@ -54,7 +55,6 @@ const AdminSettings = () => {
     const [showPassword, setShowPassword] = useState(false);
     const [showApiKeys, setShowApiKeys] = useState(false);
     const { success, error: showError } = useToast();
-    const { theme, toggleTheme } = useTheme();
     const { refreshSettings } = useSettings();
 
     useEffect(() => {
@@ -102,8 +102,7 @@ const AdminSettings = () => {
             await refreshSettings();
             success('Platform settings updated successfully');
         } catch (error) {
-            console.error('Error updating settings:', error);
-            showError('Failed to update settings');
+            showError(getErrorMessage(error, 'Failed to update settings'));
         } finally {
             setSaving(false);
         }
@@ -517,7 +516,7 @@ const AdminSettings = () => {
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                         <div className="p-8 bg-gradient-to-br from-blue-600 to-blue-800 rounded-[2rem] text-white shadow-xl shadow-blue-500/20">
                                             <p className="text-xs font-black uppercase opacity-60 tracking-[0.2em]">Total Net Revenue</p>
-                                            <p className="text-5xl font-black mt-4">{settings.currency_symbol || '$'}{stats.totalCommission.toLocaleString()}</p>
+                                            <p className="text-5xl font-black mt-4">{formatMoney(stats.totalCommission, settings)}</p>
                                             <div className="mt-8 flex items-center gap-2 text-blue-200 font-bold">
                                                 <CheckCircle2 className="w-5 h-5" />
                                                 <span>{stats.completedJobs} Jobs Completed</span>
@@ -527,7 +526,7 @@ const AdminSettings = () => {
                                         <div className="p-8 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-[2rem] flex flex-col justify-center">
                                             <p className="text-xs font-black uppercase text-slate-400 tracking-[0.2em]">Average Yield</p>
                                             <p className="text-4xl font-black text-slate-900 dark:text-white mt-4">
-                                                {settings.currency_symbol || '$'}{stats.completedJobs > 0 ? (stats.totalCommission / stats.completedJobs).toFixed(2) : '0.00'}
+                                                {formatMoney(stats.completedJobs > 0 ? stats.totalCommission / stats.completedJobs : 0, settings)}
                                             </p>
                                             <p className="text-sm text-slate-500 mt-2 font-medium">Earned per job on average</p>
                                         </div>
@@ -558,7 +557,7 @@ const AdminSettings = () => {
                                                                 </div>
                                                             </td>
                                                             <td className="px-6 py-4 text-emerald-600 font-black">
-                                                                +{settings.currency_symbol || '$'}{(Number(job.request?.budget) - Number(job.provider_earnings)).toFixed(2)}
+                                                                +{formatMoney(Number(job.request?.budget) - Number(job.provider_earnings), settings)}
                                                             </td>
                                                             <td className="px-6 py-4 text-slate-500 text-xs">
                                                                 {new Date(job.updated_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
@@ -585,34 +584,6 @@ const AdminSettings = () => {
                                     </header>
 
                                     <div className="grid md:grid-cols-2 gap-8">
-                                        <div className="space-y-4">
-                                            <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest">Global Theme</h3>
-                                            <div className="grid grid-cols-2 gap-4">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => theme !== 'light' && toggleTheme()}
-                                                    className={`p-6 rounded-3xl border-2 transition-all text-left ${theme === 'light' ? 'border-blue-600 bg-blue-50/50 shadow-lg' : 'border-slate-100 dark:border-slate-700'}`}
-                                                >
-                                                    <div className="w-12 h-12 bg-white rounded-2xl shadow-sm border border-slate-100 flex items-center justify-center mb-4">
-                                                        <Sun className="w-6 h-6 text-amber-500" />
-                                                    </div>
-                                                    <p className="font-bold text-slate-900">Light Mode</p>
-                                                    <p className="text-xs text-slate-500">Classic clean look</p>
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => theme !== 'dark' && toggleTheme()}
-                                                    className={`p-6 rounded-3xl border-2 transition-all text-left ${theme === 'dark' ? 'border-blue-600 bg-blue-900/20 shadow-lg' : 'border-slate-100 dark:border-slate-700'}`}
-                                                >
-                                                    <div className="w-12 h-12 bg-slate-900 rounded-2xl shadow-sm border border-slate-800 flex items-center justify-center mb-4">
-                                                        <Moon className="w-6 h-6 text-blue-400" />
-                                                    </div>
-                                                    <p className="font-bold text-white">Dark Mode</p>
-                                                    <p className="text-xs text-slate-400">Premium dark theme</p>
-                                                </button>
-                                            </div>
-                                        </div>
-
                                         <div className="space-y-4">
                                             <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest">Platform Accent Color</h3>
                                             <div className="p-6 bg-slate-50 dark:bg-slate-900/50 rounded-[2rem] border border-slate-100 dark:border-slate-700">

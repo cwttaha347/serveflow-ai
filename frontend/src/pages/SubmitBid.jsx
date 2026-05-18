@@ -109,7 +109,7 @@ const SubmitBid = () => {
                     <div>
                         <span className="text-sm text-slate-500 dark:text-slate-400">Customer Budget:</span>
                         <p className="font-bold text-green-600 dark:text-green-400">
-                            {request.budget ? formatMoney(request.budget, settings.currency_symbol) : 'Not specified'}
+                            {request.budget ? formatMoney(request.budget, settings) : 'Not specified'}
                         </p>
                     </div>
                 </div>
@@ -122,7 +122,7 @@ const SubmitBid = () => {
                 {request.budget && (
                     <div className="p-4 bg-blue-50 dark:bg-blue-900/10 rounded-2xl border border-blue-100 dark:border-blue-800/50">
                         <p className="text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest mb-1">Customer Budget</p>
-                        <p className="text-3xl font-black text-blue-600 dark:text-blue-400">{formatMoney(request.budget, settings.currency_symbol)}</p>
+                        <p className="text-3xl font-black text-blue-600 dark:text-blue-400">{formatMoney(request.budget, settings)}</p>
                     </div>
                 )}
 

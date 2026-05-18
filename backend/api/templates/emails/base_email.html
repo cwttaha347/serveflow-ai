@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <title>{% block title %}ServeFlow AI{% endblock %}</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:#f1f5f9;">
+    <tr>
+      <td align="center" style="padding:24px 12px;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:600px;background-color:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e2e8f0;">
+          <tr>
+            <td style="background:linear-gradient(135deg,#2563eb 0%,#7c3aed 100%);padding:28px 32px;text-align:center;">
+              {% if logo_url %}
+              <img src="{{ logo_url }}" alt="{{ platform_name }}" width="160" height="48" style="display:block;margin:0 auto 12px;max-height:48px;width:auto;max-width:200px;height:auto;border:0;" />
+              {% endif %}
+              <p style="margin:0;font-size:22px;font-weight:800;color:#ffffff;letter-spacing:-0.02em;">{{ platform_name }}</p>
+              <p style="margin:8px 0 0;font-size:12px;font-weight:600;color:rgba(255,255,255,0.85);text-transform:uppercase;letter-spacing:0.12em;">Smart Service Platform</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:32px 28px;color:#1e293b;font-size:15px;line-height:1.6;">
+              {% block content %}{% endblock %}
+            </td>
+          </tr>
+          {% block cta %}{% endblock %}
+          <tr>
+            <td style="padding:20px 28px 28px;border-top:1px solid #e2e8f0;background-color:#f8fafc;text-align:center;">
+              <p style="margin:0 0 6px;font-size:12px;color:#64748b;">&copy; {% now "Y" %} ServeFlow AI. All rights reserved.</p>
+              <p style="margin:0;font-size:11px;color:#94a3b8;">This is an automated message. Please do not reply directly to this email.</p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

@@ -1,8 +1,13 @@
 import { useEffect, useState } from 'react';
 import api from '../api';
+import { prepareImageForUpload } from '../utils/imageUpload';
+import { getImagePrepErrorMessage, getImageUploadErrorMessage } from '../utils/uploadErrors';
 import { useSettings } from '../context/SettingsContext';
+import { formatMoney } from '../utils/money';
 import { Plus, Edit2, Trash2, Search, Loader2, Image as ImageIcon } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
+import { getErrorMessage } from '../utils/apiErrors';
+import { resolveMediaUrl } from '../utils/mediaUrl';
 
 const AdminCategories = () => {
     const { settings } = useSettings();
@@ -33,7 +38,7 @@ const AdminCategories = () => {
             const response = await api.get('categories/');
             setCategories(response.data);
         } catch (error) {
-            console.error('Error fetching categories:', error);
+            showError(getErrorMessage(error, 'Failed to load categories'));
         } finally {
             setLoading(false);
         }
@@ -51,7 +56,7 @@ const AdminCategories = () => {
                 image: null  // Reset image to null for editing
             });
             // Set image preview to existing image if available
-            setImagePreview(category.image ? (category.image.startsWith('http') ? category.image : `http://127.0.0.1:8000${category.image}`) : null);
+            setImagePreview(category.image ? resolveMediaUrl(category.image, { cacheBust: category.id }) : null);
         } else {
             setEditingCategory(null);
             setFormData({
@@ -67,15 +72,18 @@ const AdminCategories = () => {
         setModalOpen(true);
     };
 
-    const handleImageChange = (e) => {
-        const file = e.target.files[0];
-        if (file) {
+    const handleImageChange = async (e) => {
+        const rawFile = e.target.files[0];
+        if (!rawFile) return;
+        e.target.value = '';
+        try {
+            const { file } = await prepareImageForUpload(rawFile);
             setFormData({ ...formData, image: file });
             const reader = new FileReader();
-            reader.onloadend = () => {
-                setImagePreview(reader.result);
-            };
+            reader.onloadend = () => setImagePreview(reader.result);
             reader.readAsDataURL(file);
+        } catch (err) {
+            showError(getImagePrepErrorMessage(err));
         }
     };
 
@@ -93,43 +101,27 @@ const AdminCategories = () => {
         }
 
         try {
+            let saved;
             if (editingCategory) {
-                await api.patch(`categories/${editingCategory.id}/`, data, {
+                const res = await api.patch(`categories/${editingCategory.id}/`, data, {
                     headers: { 'Content-Type': 'multipart/form-data' }
                 });
+                saved = res.data;
                 success('Category updated successfully');
             } else {
-                await api.post('categories/', data, {
+                const res = await api.post('categories/', data, {
                     headers: { 'Content-Type': 'multipart/form-data' }
                 });
+                saved = res.data;
                 success('Category created successfully');
             }
             setModalOpen(false);
-            fetchCategories();
-        } catch (error) {
-            console.error('Error saving category:', error);
-            console.error('Error response:', error.response);
-            console.error('Error response data:', error.response?.data);
-            console.error('Error response status:', error.response?.status);
-
-            // Display specific error message if available
-            let errorMessage = 'Failed to save category';
-            if (error.response?.data) {
-                const errorData = error.response.data;
-                if (typeof errorData === 'object') {
-                    // Get the first error message from the response
-                    const firstKey = Object.keys(errorData)[0];
-                    if (firstKey && errorData[firstKey]) {
-                        const firstError = Array.isArray(errorData[firstKey])
-                            ? errorData[firstKey][0]
-                            : errorData[firstKey];
-                        errorMessage = `${firstKey}: ${firstError}`;
-                    }
-                } else if (typeof errorData === 'string') {
-                    errorMessage = errorData;
-                }
+            if (saved?.image) {
+                setImagePreview(resolveMediaUrl(saved.image));
             }
-            showError(errorMessage);
+            await fetchCategories();
+        } catch (error) {
+            showError(getImageUploadErrorMessage(error, getErrorMessage(error, 'Failed to save category')));
         }
     };
 
@@ -140,7 +132,7 @@ const AdminCategories = () => {
             success('Category deleted');
             fetchCategories();
         } catch (error) {
-            showError('Failed to delete category');
+            showError(getErrorMessage(error, 'Failed to delete category'));
         }
     };
 
@@ -206,7 +198,7 @@ const AdminCategories = () => {
                                     <td className="px-6 py-4 font-medium text-slate-900 dark:text-slate-100 flex items-center gap-3">
                                         {cat.image ? (
                                             <img
-                                                src={cat.image.startsWith('http') ? cat.image : `http://127.0.0.1:8000${cat.image}`}
+                                                src={resolveMediaUrl(cat.image)}
                                                 alt={cat.name}
                                                 className="w-10 h-10 rounded-lg object-cover"
                                             />
@@ -218,7 +210,7 @@ const AdminCategories = () => {
                                         {cat.name}
                                     </td>
                                     <td className="px-6 py-4 capitalize">{cat.pricing_model}</td>
-                                    <td className="px-6 py-4">{settings.currency_symbol}{cat.base_price}</td>
+                                    <td className="px-6 py-4">{formatMoney(cat.base_price, settings)}</td>
                                     <td className="px-6 py-4">
                                         <span className={`px-2 py-1 rounded-full text-xs font-medium ${cat.is_active ? 'bg-green-100 text-green-800' : 'bg-slate-100 text-slate-800'}`}>
                                             {cat.is_active ? 'Active' : 'Inactive'}
@@ -315,7 +307,7 @@ const AdminCategories = () => {
                                 <div className="flex items-center gap-4">
                                     {(imagePreview || (editingCategory && editingCategory.image)) && (
                                         <img
-                                            src={imagePreview || editingCategory.image}
+                                            src={imagePreview || resolveMediaUrl(editingCategory?.image)}
                                             alt="Preview"
                                             className="w-16 h-16 rounded-lg object-cover"
                                         />

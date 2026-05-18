@@ -1,0 +1,10 @@
+ServeFlow AI — Bid Accepted
+
+Congratulations {{ provider_name }}!
+
+Request: {{ request_title }}
+Bid amount: ${{ bid_amount }}
+Duration: {{ estimated_duration }}
+Customer: {{ customer_name }}
+Location: {{ location }}
+Bid ID: #{{ bid_id }} · Request ID: #{{ request_id }}

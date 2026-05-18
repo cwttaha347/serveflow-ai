@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import api from '../api';
 import { Search, Filter, Eye } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
+import { getErrorMessage } from '../utils/apiErrors';
 
 const AdminRequests = () => {
     const [requests, setRequests] = useState([]);
@@ -21,8 +22,7 @@ const AdminRequests = () => {
             const response = await api.get('requests/');
             setRequests(response.data);
         } catch (error) {
-            console.error('Error fetching requests:', error);
-            showError('Failed to load requests');
+            showError(getErrorMessage(error, 'Failed to load requests'));
         } finally {
             setLoading(false);
         }

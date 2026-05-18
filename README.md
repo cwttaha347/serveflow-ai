@@ -1,371 +1,178 @@
----
-title: serveflowai
-emoji: 🏢
-colorFrom: blue
-colorTo: indigo
-sdk: docker
-pinned: false
----
+# ServeFlow AI
 
-# ServeFlow AI - AI-Powered Service Marketplace
+**ServeFlow AI** is an AI-powered home and professional services marketplace. Customers post jobs with photos or a guided chatbot flow; verified providers bid; the platform handles matching, invoicing, Stripe payments, and reviews—with real-time notifications over WebSockets.
 
+## Problem & solution
 
-## 🚀 Overview
-**ServeFlow AI** is an intelligent service aggregator platform powered by Google Gemini AI that connects customers with verified service providers through smart matching, real-time notifications, and a comprehensive bidding system.
+| Problem | ServeFlow approach |
+|--------|---------------------|
+| Finding trusted local providers is slow and opaque | Verified provider onboarding, ratings, and admin oversight |
+| Quotes and scope are unclear | AI-assisted request analysis (category, severity, budget hints) |
+| Coordination after booking is fragmented | Jobs, bids, invoices, messaging, and status updates in one place |
+| Payments lack transparency | Invoices, Stripe Checkout, commission splits, provider ledger |
 
-## ✨ Key Features
-
-### 🔐 Authentication & User Management
-- Multi-role system: **Customer**, **Provider**, **Admin**
-- Login with email **or** username
-- Unified login/registration interface with split-screen design
-- Token-based authentication (DRF)
-- Role-based dashboards and permissions
-
-### 🤖 AI-Powered Matching (Google Gemini)
-- **Category Detection**: Auto-categorize service requests
-- **Provider Matching**: Smart scoring based on:
-  - Service category alignment
-  - Geographic proximity (Haversine distance)
-  - Provider ratings & completed jobs
-  - Real-time availability
-- **Image Analysis**: Analyze uploaded service images
-- **Confidence Scoring**: AI-powered match quality metrics
-
-### 💼 Service Request Management
-- Create detailed service requests with:
-  - Title, description, location, budget
-  - Preferred date/time
-  - Image uploads (optional)
-- **Broadcasting**: Requests sent to all available providers in category
-- **AI Analysis**: Automatic categorization and urgency detection
-- **Request Tracking**: Real-time status updates
-
-### 🏆 Bidding System
-- **Browse Requests**: Providers view open job opportunities
-- **Submit Bids**: Providers propose pricing & timeline
-- **Bid Management**: Customers review, accept/reject bids
-- **Automatic Assignment**: Winning bid creates active job
-- **Email Notifications**: Alerts for new bids and acceptances
-
-### 📋 Job Lifecycle Management
-- **Status Tracking**: Pending → Accepted → Started → Completed
-- **Race Condition Protection**: Jobs auto-cancel when provider accepts
-- **Provider Actions**: Accept, Start, Complete jobs
-- **Real-time Updates**: WebSocket notifications for all parties
-- **Earnings Calculation**: Automatic commission & provider earnings
-
-### 💰 Invoicing & Payments
-- Auto-generated invoices on job completion
-- Commission-based revenue model (admin-configurable)
-- Payment tracking (paid/unpaid status)
-- Revenue analytics for admins
-
-### ⭐ Reviews & Ratings
-- Customers leave reviews after job completion
-- 5-star rating system
-- **Dynamic Provider Ratings**: Auto-updated from reviews
-- Review visibility on provider profiles
-
-### 🔔 Real-time Notifications (WebSocket)
-- **Django Channels + Daphne** for WebSocket support
-- Live toast notifications for:
-  - New job assignments (Providers)
-  - Job status changes (Customers)
-  - Bid submissions & acceptances
-- **Token Authentication**: Secure WebSocket connections
-- **Auto-reconnection**: Resilient connection management
-
-### 📧 Email Notification System
-- Automated emails for:
-  - New service requests (Providers)
-  - New bid submissions (Customers)
-  - Bid acceptances (Providers)
-  - Job status updates
-  - Invoice generation
-- Console backend for development, SMTP ready for production
-
-### 🔍 Audit Logging
-- Comprehensive activity tracking
-- Admin-only access
-- Filterable by user, action, model, date range
-- CSV export for compliance
-- Read-only interface
-
-### 🛡️ Admin Dashboard
-- **System Overview**: Users, providers, jobs, revenue stats
-- **Provider Verification**: Approve/reject provider applications
-- **Request Monitoring**: View all service requests
-- **Job Management**: Track all jobs across platform
-- **Commission Settings**: Configure platform commission rates
-- **Category Management**: Add/edit service categories
-- **Audit Logs**: Full activity tracking
-- **AI Performance Metrics**: Matching accuracy stats
-
-## 🏗️ Architecture
+## Architecture (Docker)
 
 ```
-┌─────────────────┐      ┌───────────────────┐      ┌──────────────┐
-│  React Frontend │─────▶│  Django Backend   │─────▶│   SQLite DB  │
-│   (Port 5173)   │      │   (Port 8000)     │      │              │
-└─────────────────┘      └───────────────────┘      └──────────────┘
-         │                        │
-         │                        │
-         │                        ▼
-         │               ┌───────────────────┐
-         └──────────────▶│  WebSocket (WS)   │
-                         │  Django Channels  │
-                         └───────────────────┘
+┌─────────────┐     ┌──────────────┐     ┌─────────────┐
+│  frontend   │────▶│   backend    │────▶│     db      │
+│  :80 (web)  │     │  :8000 API   │     │  PostgreSQL │
+└─────────────┘     └──────┬───────┘     └─────────────┘
+                           │
+         ┌─────────────────┼─────────────────┐
+         ▼                 ▼                 ▼
+   ┌───────────┐   ┌─────────────┐   ┌────────────────┐
+   │   redis   │   │ ai_service  │   │matching_service│
+   │  :6379    │   │   :8001     │   │     :8002      │
+   └───────────┘   └─────────────┘   └────────────────┘
+                           │
+                    ┌──────▼──────┐
+                    │celery_worker│
+                    └─────────────┘
 ```
 
-## 📚 Detailed Documentation
-Comprehensive documentation for developers and stakeholders:
-*   **[Project Report](file:///e:/ServeFlow-ai/docs/REPORT.md)**: Problem statement, research questions, and technology deep-dive.
-*   **[Technical Architecture](file:///e:/ServeFlow-ai/docs/TECHNICAL.md)**: System diagrams, sequence maps, and database ERD.
-*   **[API Reference](file:///e:/ServeFlow-ai/docs/API_DOCS.md)**: Exhaustive list of endpoints with request/response examples.
-*   **[Deployment & Infrastructure](file:///e:/ServeFlow-ai/docs/INFRASTRUCTURE.md)**: Environment variables, setup guides, and production hardening.
+| Service | Role | Host port |
+|---------|------|-----------|
+| `frontend` | React SPA (nginx) | **80** → http://localhost |
+| `backend` | Django REST + Daphne (HTTP + WebSocket) | **8000** |
+| `db` | PostgreSQL 15 | 5432 |
+| `redis` | Channels / Celery broker | 6379 |
+| `ai_service` | Gemini workflows (analysis, verification) | 8001 |
+| `matching_service` | Provider scoring / proximity | 8002 |
+| `celery_worker` | Async email and background tasks | — |
 
-## 🚀 Setup Instructions
+API and admin: `http://localhost:8000` · Health: `http://localhost:8000/health/`
 
-### Quick Start on Windows (one-click setup + run)
-From the project root, double-click `run-serveflow.bat`.
+## Prerequisites
 
-- First run: creates `.venv`, installs backend/frontend dependencies, runs migrations, then starts both servers.
-- Next runs: reads `.serveflow-setup.state` (`SETUP_DONE=true`) and only starts both servers.
-- To force setup again, run: `powershell -ExecutionPolicy Bypass -File .\start-serveflow.ps1 -ForceSetup`
+- **Windows 10/11** (primary dev path)
+- **Docker Desktop** installed and running (WSL2 backend recommended)
+- Optional: `credentials.txt` at repo root for SMTP, Stripe, and Gemini keys (see below)
 
-### Prerequisites
-- Python 3.13+
-- Node.js 18+
-- npm or yarn
+## Quick start (Windows)
 
-### 1. Backend Setup (Django)
-```bash
-cd backend
-pip install -r requirements.txt
-python manage.py migrate
-python manage.py createsuperuser
-python manage.py runserver
+**One-click (recommended on a new machine):**
+
+1. Clone the repo.
+2. (Optional) Copy and fill `credentials.txt` at the repo root.
+3. Double-click **`setup-and-run.bat`** or from PowerShell:
+
+```bat
+.\setup-and-run.bat
 ```
 
-**Backend runs on**: `http://localhost:8000`
+Skip demo seed data:
 
-### 2. Frontend Setup (React + Vite)
-```bash
-cd frontend
-npm install
-npm run dev
+```bat
+.\setup-and-run.bat --no-seed
 ```
 
-**Frontend runs on**: `http://localhost:5173`
+**Manual equivalent:**
 
-## 📡 API Reference
-
-### Authentication
-- `POST /api/auth/login/` - Login (username/email + password)
-- `POST /api/users/` - Register new user
-
-### Users & Providers
-- `GET /api/users/` - List all users (admin)
-- `GET /api/users/me/` - Get current user profile
-- `GET /api/providers/` - List providers
-- `PATCH /api/providers/{id}/` - Update provider (verify, etc.)
-
-### Service Requests
-- `GET /api/requests/` - List requests
-- `POST /api/requests/` - Create request
-- `GET /api/requests/{id}/` - Get request details (returns: `{request, job, hasReview}`)
-- `POST /api/requests/{id}/ai_match/` - AI-powered provider matching
-
-### Jobs
-- `GET /api/jobs/` - List jobs (filtered by role)
-- `POST /api/jobs/{id}/accept/` - Accept job (provider)
-- `POST /api/jobs/{id}/start/` - Start job
-- `POST /api/jobs/{id}/complete/` - Complete job
-
-### Bidding
-- `GET /api/bids/` - List bids (filtered by role)
-- `POST /api/bids/` - Submit bid (provider)
-- `POST /api/bids/{id}/accept/` - Accept bid (customer)
-- `POST /api/bids/{id}/reject/` - Reject bid
-
-### Reviews & Invoices
-- `POST /api/reviews/` - Create review (payload: `{job_id, rating, comment}`)
-- `GET /api/invoices/` - List invoices
-- `POST /api/invoices/{id}/mark_paid/` - Mark invoice as paid
-
-### Categories
-- `GET /api/categories/` - List service categories
-
-### Audit Logs (Admin Only)
-- `GET /api/audit-logs/` - List audit logs (filterable)
-
-### WebSocket
-- `ws://localhost:8000/ws/notifications/?token=<AUTH_TOKEN>` - Real-time notifications
-
-## 💾 Database Schema
-
-### Key Models
-- **User**: Authentication, roles (user/provider/admin)
-- **Provider**: Profile, ratings, categories, verification status
-- **Category**: Service types (Plumbing, Electrical, etc.)
-- **Request**: Service requests from customers
-- **Job**: Work assignments linking requests to providers
-- **Bid**: Provider proposals on open requests
-- **Invoice**: Payment documents for completed jobs
-- **Review**: Customer feedback on completed jobs
-- **AuditLog**: System activity tracking
-
-**Database**: SQLite (development), PostgreSQL ready (production)
-
-## 🔧 Environment Variables
-
-Create `.env` in backend directory:
-
-```env
-# Django
-SECRET_KEY=your-secret-key-here
-DEBUG=True
-ALLOWED_HOSTS=localhost,127.0.0.1
-
-# Database (optional - defaults to SQLite)
-# DATABASE_URL=postgresql://user:pass@localhost/serveflow
-
-# Email (production)
-EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
-EMAIL_HOST=smtp.gmail.com
-EMAIL_PORT=587
-EMAIL_USE_TLS=True
-EMAIL_HOST_USER=your-email@gmail.com
-EMAIL_HOST_PASSWORD=your-app-password
-DEFAULT_FROM_EMAIL=ServeFlow AI <noreply@serveflow.ai>
-
-# CORS
-CORS_ALLOWED_ORIGINS=http://localhost:5173
-
-# Google Gemini (Optional - if using external AI service)
-GEMINI_API_KEY=your-gemini-api-key
-# Or numbered rotation (see SystemSettings.get_gemini_api_keys)
-# GEMINI_API_KEY_1=...
-# GEMINI_API_KEY_2=...
-
-# Merge env into SystemSettings (overwrites blank fields; use force flags below to overwrite stale DB)
-# SYNC_SETTINGS_FROM_ENV_FORCE=true
-# HF_SYNC_SETTINGS_FROM_ENV=true
+```bat
+docker compose down
+docker compose build
+docker compose up -d
+docker compose exec backend python manage.py migrate --noinput
+docker compose exec backend python manage.py sync_credentials_file --force
+docker compose exec backend python manage.py seed_serveflow_v2
 ```
 
-## 🧪 Testing
+First startup can take 1–3 minutes while Postgres, migrations, and health checks complete.
 
-### Test Accounts
-After running the seed command, you'll have:
+## Default URLs & test accounts
 
-- Run:
-  - `cd backend`
-  - `python manage.py migrate`
-  - `python manage.py seed_serveflow_v2`
-- **Admin**: `admin` / `admin123`
-- **Providers**: `pro_plumber`, `pro_electric`, `pro_clean`, `pro_hvac`, `pro_painter`, `pro_carpenter` / `user12345`
-- **Customers**: `customer1` to `customer5` / `user12345`
+| URL | Purpose |
+|-----|---------|
+| http://localhost | Main app (customer / provider UI) |
+| http://localhost:8000/admin/ | Django admin |
+| http://localhost:8000/api/ | REST API root |
+| http://localhost:8000/health/ | Backend health |
 
-### Manual Testing Flow
-1. **Register** as customer or provider
-2. **Customer Flow**:
-   - Create service request
-   - Receive bids from providers
-   - Accept a bid
-   - Track job progress
-   - Leave review
-3. **Provider Flow**:
-   - Browse open requests
-   - Submit bids
-   - Accept assigned jobs
-   - Update job status
-   - View earnings
-4. **Admin Flow**:
-   - Verify new providers
-   - Monitor all requests/jobs
-   - Adjust commission rates
-   - Review audit logs
+After **`seed_serveflow_v2`** (default in `setup-and-run.bat`):
 
-## 📦 Tech Stack
+| Role | Username | Password |
+|------|----------|----------|
+| Admin | `admin` | `admin123` |
+| Admin (alt) | `Taha` | `Taha#@12345` |
+| Providers | `pro_plumber`, `pro_electric`, `pro_clean`, `pro_hvac`, `pro_painter`, `pro_carpenter` | `user12345` |
+| Customers | `customer1` … `customer5` | `user12345` |
 
-### Backend
-- **Django 5.1** - Web framework
-- **Django REST Framework** - API development
-- **Django Channels 4.3** - WebSocket support
-- **Daphne 4.2** - ASGI server
-- **SQLite** - Database (dev), PostgreSQL (prod)
+Seeded users have `is_email_verified=True` so you can log in without OTP in local demos.
 
-### Frontend
-- **React 19** - UI library
-- **Vite** - Build tool
-- **React Router 6** - Navigation
-- **Axios** - HTTP client
-- **Framer Motion** - Animations
-- **Lucide React** - Icons
-- **TailwindCSS** (via index.css) - Styling
+## `credentials.txt` setup
 
-### Real-time
-- **WebSocket** - Bidirectional communication
-- **InMemoryChannelLayer** (dev) / **Redis** (prod)
+Place **`credentials.txt`** at the **repository root** (mounted read-only into backend/celery containers). Use bracketed values and labeled sections—see **`docs/ServeFlow-Documentation.md`** (Operations → credentials format) for the full template.
 
-## 🚀 Deployment
+**Do not commit real secrets.** Add `credentials.txt` to `.gitignore` if it is not already ignored.
 
-### Security Checklist
-- [ ] Set `DEBUG=False`
-- [ ] Generate new `SECRET_KEY`
-- [ ] Configure `ALLOWED_HOSTS`
-- [ ] Set up HTTPS/SSL
-- [ ] Update `CORS_ALLOWED_ORIGINS`
-- [ ] Switch to SMTP email backend
-- [ ] Migrate to PostgreSQL database
+Sync into the database (`SystemSettings` singleton):
 
-### Production Configuration
-- Use **Redis** for channel layer (WebSocket scalability)
-- Configure static file serving (`collectstatic`)
-- Set up media file storage (AWS S3/similar)
-- Enable database connection pooling
-- Configure logging
+```bat
+docker compose exec backend python manage.py sync_credentials_file --force
+```
 
-### Hugging Face Spaces (Docker)
+`--force` overwrites SMTP/Stripe/Gemini fields from the file; without it, only empty DB fields are filled.
 
-The root [`Dockerfile`](Dockerfile) runs migrations, `seed_serveflow_v2`, and Daphne on port 7860. Pushing code **does not copy your local database**; without a persistent database, SQLite data is lost on each fresh deploy.
+## Common troubleshooting
 
-**Persist data and avoid re-entering admin configuration**
+### 502 Bad Gateway right after `docker compose up`
 
-1. Add a **PostgreSQL** instance (e.g. Neon, Supabase, or another host) and set the Space secret **`DATABASE_URL`** to your connection string (same as in [`DEPLOYMENT.md`](DEPLOYMENT.md)). Migrations then run against Postgres and survive code pushes.
-2. Store secrets as **Space variables** (Repository secrets). They are read on startup via [`SystemSettings.sync_from_env`](backend/api/models.py). Useful names:
-   - **`DATABASE_URL`** — persistent Postgres (recommended).
-   - **`SECRET_KEY`**, **`DEBUG`**, **`ALLOWED_HOSTS`**
-   - **`SMTP_HOST`** — e.g. `smtp.sendgrid.net` for SendGrid
-   - **`SMTP_PORT`** — e.g. `587`
-   - **`SENDGRID_API_KEY`** — `SG....` (mapped to `smtp_password`; with a SendGrid host, `smtp_user` is set to `apikey`)
-   - **`DEFAULT_FROM_EMAIL`** or **`FROM_EMAIL`** — must be a **verified** sender in SendGrid
-   - **`GEMINI_API_KEY_1`** … **`GEMINI_API_KEY_5`** or **`GEMINI_API_KEYS`** (comma-separated)
-   - **`STRIPE_*`** keys if using billing
-3. If old rows in `SystemSettings` block new secrets, set **`SYNC_SETTINGS_FROM_ENV_FORCE=true`** or **`HF_SYNC_SETTINGS_FROM_ENV=true`** once so the DB is overwritten from env (then remove or set to false if you prefer admin-only edits).
+The **frontend** nginx proxy waits for **backend** health. On a cold start this can take **90+ seconds**. Wait, then refresh http://localhost. Check status:
 
-**OTP email not arriving**
+```bat
+docker compose ps
+curl http://localhost:8000/health/
+```
 
-- OTP is sent only for **existing** users (same generic message if the email is unknown).
-- With Celery eager mode, sending runs in-process; check **`EmailLog`** in Django admin for errors (e.g. SendGrid 401, unverified sender).
-- Prefer **`smtp_user=apikey`** + **`SENDGRID_API_KEY=SG....`** + **`SMTP_HOST=smtp.sendgrid.net`** (see sync logic above).
+If backend stays unhealthy: `docker compose logs backend --tail 80`
 
-### Recommended Hosting
-- **Backend**: Koyeb (Free Tier), Railway, Fly.io
-- **Frontend**: Koyeb (Static site), Vercel, Netlify
-- **Database**: Koyeb Managed PostgreSQL
-- **Redis**: Upstash Redis (Free Tier)
+### Category or profile images missing
 
-### 🚀 Deploy to Koyeb
-For detailed instructions on deploying this project to Koyeb, see the **[Koyeb Deployment Guide](file:///E:/ServeFlow-ai/DEPLOYMENT.md)**.
+Media files live under `backend/media/` and are served by Django in DEBUG. Ensure the backend volume mount exists and you ran migrations. After seeding, category icons use Lucide names; uploaded images use paths under `/media/`.
 
-## 📄 License
-MIT License
+### OTP / verification email not received
 
-## 🤝 Contributing
-Contributions welcome! Please open an issue or PR.
+1. Configure SMTP in `credentials.txt` and run `sync_credentials_file --force`.
+2. OTP is sent only for **existing** accounts (unknown emails get a generic response).
+3. In Docker dev, `CELERY_TASK_ALWAYS_EAGER=true` runs sends in-process—check **Django admin → Email logs** for failures.
+4. For Gmail, use an **app password**, not your normal login password.
 
----
+### AI analysis fails
 
-**Built with ❤️ using Django, React, and Google Gemini AI by cwttaha347**
+Ensure at least one `API_KEY_1` … `API_KEY_5` is set in `credentials.txt` and synced, or set `GEMINI_API_KEY` in `ai_service` environment. Check `docker compose logs ai_service`.
+
+## Full documentation
+
+| Document | Description |
+|----------|-------------|
+| **[docs/ServeFlow-Documentation.md](docs/ServeFlow-Documentation.md)** | Master guide (user + technical + operations) |
+| **[docs/ServeFlow-Documentation.docx](docs/ServeFlow-Documentation.docx)** | Word export (generate with script below) |
+| [docs/TECHNICAL.md](docs/TECHNICAL.md) | Additional architecture notes |
+| [docs/API_DOCS.md](docs/API_DOCS.md) | Endpoint reference |
+| [docs/INFRASTRUCTURE.md](docs/INFRASTRUCTURE.md) | Deployment and env details |
+
+**Generate Word document from markdown:**
+
+```bat
+pip install python-docx
+python docs/generate_docx.py
+```
+
+Or with Pandoc:
+
+```bat
+pandoc docs/ServeFlow-Documentation.md -o docs/ServeFlow-Documentation.docx
+```
+
+## Tech stack (summary)
+
+- **Frontend:** React 19, Vite, Tailwind
+- **Backend:** Django 5, DRF, Channels, Daphne, Celery
+- **Data:** PostgreSQL, Redis
+- **AI:** Google Gemini (`ai_service`), custom matching (`matching_service`)
+- **Payments:** Stripe
+
+## License
+
+MIT — see repository license file.

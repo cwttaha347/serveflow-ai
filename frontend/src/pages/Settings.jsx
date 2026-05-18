@@ -3,20 +3,28 @@ import { useTheme } from '../context/ThemeContext';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-    Moon, Sun, User, Bell, Shield, Database, LogOut, Briefcase,
+    Moon, Sun, User, Shield, Briefcase,
     Camera, Mail, MapPin, Phone, Lock, Save, Loader2, Palette, CheckCircle2, ChevronRight
 } from 'lucide-react';
 import api from '../api';
 import { useToast } from '../context/ToastContext';
-import ThemeToggle from '../components/ThemeToggle';
 import { useAuth } from '../context/AuthContext';
+import { useSettings } from '../context/SettingsContext';
+import { prepareImageForUpload } from '../utils/imageUpload';
+import {
+    getImagePrepErrorMessage,
+    getImageUploadErrorMessage,
+    IMAGE_RESIZED_TOAST,
+} from '../utils/uploadErrors';
+import { resolveMediaUrl } from '../utils/mediaUrl';
 
 const Settings = () => {
-    const { theme, toggleTheme } = useTheme();
+    const { theme, setTheme } = useTheme();
     const navigate = useNavigate();
-    const [searchParams] = useSearchParams();
-    const { success, error: showError } = useToast();
-    const { user: authUser } = useAuth();
+    const [searchParams, setSearchParams] = useSearchParams();
+    const { success, error: showError, warning: showWarning } = useToast();
+    const { user: authUser, applyMeData, refreshUser } = useAuth();
+    const { refreshSettings } = useSettings();
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [activeTab, setActiveTab] = useState('profile');
@@ -49,6 +57,7 @@ const Settings = () => {
             setLoading(true);
             const response = await api.get('users/me/');
             setUserData(response.data);
+            applyMeData(response.data);
         } catch (error) {
             console.error(error);
             showError('Failed to load profile');
@@ -57,18 +66,24 @@ const Settings = () => {
         }
     };
 
-    const handleImageChange = (e) => {
-        const file = e.target.files[0];
-        if (file) {
+    const handleImageChange = async (e) => {
+        const rawFile = e.target.files[0];
+        if (!rawFile) return;
+        e.target.value = '';
+        try {
+            const { file, compressed } = await prepareImageForUpload(rawFile);
             setUserData(prev => ({
                 ...prev,
                 profile: { ...prev.profile, photo: file }
             }));
             const reader = new FileReader();
-            reader.onloadend = () => {
-                setPreviewImage(reader.result);
-            };
+            reader.onloadend = () => setPreviewImage(reader.result);
             reader.readAsDataURL(file);
+            if (compressed) {
+                showWarning(IMAGE_RESIZED_TOAST);
+            }
+        } catch (err) {
+            showError(getImagePrepErrorMessage(err));
         }
     };
 
@@ -94,14 +109,39 @@ const Settings = () => {
                 headers: { 'Content-Type': 'multipart/form-data' }
             });
 
-            await fetchProfile();
-            success('Profile updated successfully');
+            const profileRes = await api.get('users/me/');
+            setUserData(profileRes.data);
+            setPreviewImage(null);
+            const updatedUser = applyMeData(profileRes.data);
+            await refreshUser();
+            window.dispatchEvent(new CustomEvent('serveflow:profile-updated'));
+            refreshSettings();
+
+            if (updatedUser?.profile_completed) {
+                if (searchParams.get('onboarding') === '1') {
+                    const nextParams = new URLSearchParams(searchParams);
+                    nextParams.delete('onboarding');
+                    setSearchParams(nextParams, { replace: true });
+                }
+                const welcomeKey = 'profileWelcomeShown';
+                if (!localStorage.getItem(welcomeKey)) {
+                    localStorage.setItem(welcomeKey, '1');
+                    success('Welcome! Your profile is complete.');
+                } else {
+                    success('Profile updated successfully');
+                }
+            } else {
+                success('Profile updated successfully');
+            }
         } catch (error) {
             console.error(error);
             const fieldErrors = error?.response?.data?.field_errors || {};
             const firstField = Object.keys(fieldErrors)[0];
             const firstMsg = firstField ? String(fieldErrors[firstField]?.[0] || fieldErrors[firstField]) : '';
-            showError(firstMsg || error?.response?.data?.error || 'Failed to update profile');
+            showError(
+                firstMsg ||
+                    getImageUploadErrorMessage(error, error?.response?.data?.error || 'Failed to update profile')
+            );
         } finally {
             setSaving(false);
         }
@@ -129,11 +169,6 @@ const Settings = () => {
         }
     };
 
-    const handleLogout = () => {
-        localStorage.removeItem('token');
-        navigate('/login');
-    };
-
     if (loading) {
         return (
             <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-4">
@@ -152,28 +187,21 @@ const Settings = () => {
 
     return (
         <div className="max-w-6xl mx-auto space-y-8 pb-12 px-4 sm:px-6 lg:px-8">
-            {searchParams.get('onboarding') === '1' && (
-                <div className="rounded-2xl border border-amber-300 bg-amber-50 dark:bg-amber-900/20 px-5 py-4">
+            {authUser && authUser.profile_completed === false && (
+                <motion.div
+                    initial={{ opacity: 0, y: -8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -8 }}
+                    className="rounded-2xl border border-amber-300 bg-amber-50 dark:bg-amber-900/20 px-5 py-4"
+                >
                     <p className="text-sm font-semibold text-amber-700 dark:text-amber-300">
                         Complete phone number and address to unlock the platform.
                     </p>
-                </div>
+                </motion.div>
             )}
-            <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div>
-                    <h1 className="text-4xl font-black text-slate-900 dark:text-white tracking-tight">Settings</h1>
-                    <p className="text-slate-500 dark:text-slate-400 font-medium mt-1">Manage your account and app preferences</p>
-                </div>
-                <div className="flex flex-col xs:flex-row xs:items-center gap-3 w-full sm:w-auto">
-                    <button
-                        onClick={handleLogout}
-                        className="w-full xs:w-auto flex items-center justify-center gap-2 px-6 py-3 bg-red-500/10 text-red-600 dark:text-red-400 rounded-2xl font-bold hover:bg-red-500/20 transition-all border border-red-500/20"
-                    >
-                        <LogOut className="w-4 h-4" />
-                        Log Out
-                    </button>
-                    <ThemeToggle />
-                </div>
+            <header>
+                <h1 className="text-4xl font-black text-slate-900 dark:text-white tracking-tight">Settings</h1>
+                <p className="text-slate-500 dark:text-slate-400 font-medium mt-1">Manage your account and app preferences</p>
             </header>
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
@@ -203,7 +231,7 @@ const Settings = () => {
                             <div className="w-24 h-24 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-full flex items-center justify-center text-3xl font-black text-white shadow-2xl overflow-hidden ring-4 ring-white dark:ring-slate-800">
                                 {previewImage || userData.profile?.photo ? (
                                     <img
-                                        src={previewImage || userData.profile?.photo}
+                                        src={previewImage || resolveMediaUrl(userData.profile?.photo, { cacheBust: userData.id })}
                                         alt="Profile"
                                         className="w-full h-full object-cover"
                                     />
@@ -433,7 +461,7 @@ const Settings = () => {
                                     <div className="space-y-8">
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                             <button
-                                                onClick={() => theme !== 'light' && toggleTheme()}
+                                                onClick={() => setTheme('light')}
                                                 className={`p-6 sm:p-8 rounded-[2rem] border-2 transition-all text-left group ${theme === 'light'
                                                         ? 'border-blue-600 bg-blue-50 shadow-lg'
                                                         : 'border-slate-100 dark:border-slate-800 hover:border-slate-200 dark:hover:border-slate-700'
@@ -448,7 +476,7 @@ const Settings = () => {
                                             </button>
 
                                             <button
-                                                onClick={() => theme !== 'dark' && toggleTheme()}
+                                                onClick={() => setTheme('dark')}
                                                 className={`p-6 sm:p-8 rounded-[2rem] border-2 transition-all text-left group ${theme === 'dark'
                                                         ? 'border-blue-600 bg-blue-900/20 shadow-lg'
                                                         : 'border-slate-100 dark:border-slate-800 hover:border-slate-200 dark:hover:border-slate-700'
